@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "aagam": {
+      "type": "stdio",
+      "command": "I:\\AAGAM\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "aagam", "mcp"],
+      "env": {
+        "AAGAM_HOME": "I:\\AAGAM\\.dev-data"
+      }
+    }
+  }
+}

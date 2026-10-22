@@ -1,0 +1,24 @@
+# Only pyproject.toml, README.md and src/ go into the image. Never client data.
+.git
+.venv
+.dev-data
+.tools
+.pytest_cache
+.ruff_cache
+.mcp.json
+AAGAM
+build
+dist
+docs
+scripts
+tests
+frontend
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+*.db
+*.db-wal
+*.db-shm
+*.log
+Dockerfile
+docker-compose.yml

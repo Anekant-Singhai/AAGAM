@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Portable Node.js used only to build the interface.
+/.tools/
+frontend/node_modules/
+frontend/dist/
+
+# Client data never belongs in this repository. AAGAM keeps it in
+# AAGAM_HOME (default ~/AAGAM); .dev-data is the throwaway home used
+# while developing. Anchored with a leading slash: git on Windows ignores
+# case, and an unanchored "AAGAM/" would also hide src/aagam.
+/.dev-data/
+/AAGAM/
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AAGAM</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231e5c8c'/%3E%3Ctext x='16' y='22' font-family='Cambria,Georgia' font-size='18' fill='white' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E" />
+    <script>
+      // Apply the saved theme before the page paints, so there is no flash of the wrong one.
+      // A link can choose the theme too (…/?theme=banaras); it is then remembered like a choice from the menu.
+      try {
+        var asked = new URLSearchParams(location.search).get("theme");
+        if (asked && /^(system|light|night|dark|banaras)$/.test(asked)) localStorage.setItem("aagam.theme", asked);
+        var t = localStorage.getItem("aagam.theme");
+        if (t) document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
+    <script type="module" crossorigin src="/assets/index-D7z3pVO_.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DGa1mBhf.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

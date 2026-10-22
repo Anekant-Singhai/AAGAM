@@ -1,0 +1,33 @@
+# AAGAM on a server or another machine (optional; her laptop doesn't need Docker).
+#
+#   docker compose up -d                  AAGAM at http://127.0.0.1:8765
+#   docker compose --profile ai up -d     also a local AI (Ollama) container, then:
+#   docker compose exec ollama ollama pull qwen3:4b
+#
+# Data lives in the named volume "aagam-data". Windows OCR isn't available in the
+# container, so scanned pages aren't read there.
+services:
+  aagam:
+    build: .
+    image: aagam
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      AAGAM_HOME: /data
+      AAGAM_BIND: 0.0.0.0
+      AAGAM_LOCAL_AI_URL: http://ollama:11434
+      AAGAM_LOCAL_AI_MODEL: qwen3:4b
+    volumes:
+      - aagam-data:/data
+
+  ollama:
+    image: ollama/ollama
+    profiles: ["ai"]
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+
+volumes:
+  aagam-data:
+  ollama-models:

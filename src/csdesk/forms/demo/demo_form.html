@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEMO-1 practice form</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; margin: 2rem auto; max-width: 46rem; padding: 0 1rem; color: #1d2733; }
+  .banner { background: #fff4d6; border: 1px solid #d9b65a; padding: .75rem 1rem; margin-bottom: 1.5rem; }
+  label { display: block; margin-top: 1rem; font-weight: 600; }
+  input, select { width: 100%; padding: .45rem; margin-top: .25rem; box-sizing: border-box; font: inherit; }
+  .actions { margin-top: 1.5rem; display: flex; gap: .75rem; }
+  button { padding: .5rem 1.2rem; font: inherit; }
+  #status { margin-top: 1rem; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="banner">Practice page for CS Desk. This is <strong>not</strong> an MCA form and sends nothing anywhere.</div>
+  <h1>DEMO-1: Appointment of a director (practice)</h1>
+  <form id="demo" onsubmit="return false">
+    <label for="cin">Corporate Identification Number (CIN)</label>
+    <input id="cin" name="cin" autocomplete="off">
+    <label for="cname">Name of the company</label>
+    <input id="cname" name="cname" autocomplete="off">
+    <label for="din">Director Identification Number (DIN)</label>
+    <input id="din" name="din" autocomplete="off">
+    <label for="dname">Name of the director</label>
+    <input id="dname" name="dname" autocomplete="off">
+    <label for="pan">Income-tax PAN of the director</label>
+    <input id="pan" name="pan" autocomplete="off">
+    <label for="doa">Date of appointment</label>
+    <input id="doa" name="doa" placeholder="DD/MM/YYYY" autocomplete="off">
+    <label for="desig">Designation</label>
+    <select id="desig" name="desig">
+      <option value="">Select</option>
+      <option>Director</option>
+      <option>Additional Director</option>
+      <option>Managing Director</option>
+      <option>Whole-time Director</option>
+    </select>
+    <fieldset style="margin-top: 1rem; border: 0; padding: 0;">
+      <legend style="font-weight: 600;">Is the director also a shareholder?</legend>
+      <label style="display: inline; font-weight: normal;"><input type="radio" name="shareholder" value="Y" style="width: auto;"> Yes</label>
+      <label style="display: inline; font-weight: normal; margin-left: 1rem;"><input type="radio" name="shareholder" value="N" style="width: auto;"> No</label>
+    </fieldset>
+    <div class="actions">
+      <button type="button" id="save" onclick="document.getElementById('status').textContent = 'Draft saved'">Save as draft</button>
+      <button type="submit" id="submit" onclick="document.body.dataset.submitted = 'yes'; document.getElementById('status').textContent = 'SUBMITTED'">Submit</button>
+    </div>
+  </form>
+  <p id="status" role="status"></p>
+</body>
+</html>
