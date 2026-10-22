@@ -253,7 +253,7 @@ class ChargeIn(Input):
 
 
 class EventIn(Input):
-    """Company events that start a filing clock and aren't meetings, appointments or charges."""
+    """Company or LLP events that start a filing clock and aren't meetings, appointments or charges."""
 
     company_id: int | None = None
     kind: (
@@ -264,10 +264,20 @@ class EventIn(Input):
             "name_change",
             "objects_change",
             "conversion",
+            "llp_agreement_change",
+            "sbo_declaration",
             "other",
         ]
         | None
-    ) = None
+    ) = Field(
+        None,
+        description=(
+            "Company: allotment (PAS-3), capital_alteration (SH-7), registered_office_change (INC-22), "
+            "sbo_declaration (a BEN-1 declaration received: BEN-2). LLP: registered_office_change (Form 15), "
+            "name_change (Form 5), llp_agreement_change (the LLP agreement changed, e.g. a contribution or profit share: "
+            "Form 3), sbo_declaration (an LLP BEN-1 declaration received: LLP BEN-2)"
+        ),
+    )
     date: Day | None = None
     allotment_type: (
         Literal["private_placement", "rights", "bonus", "preferential", "esop", "conversion", "other"] | None

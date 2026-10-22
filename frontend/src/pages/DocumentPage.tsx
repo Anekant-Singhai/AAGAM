@@ -68,23 +68,48 @@ export default function DocumentPage() {
   });
   const removeDocument = async () => {
     if (!doc) return;
-    const notes = doc.notes?.length ?? 0;
+    const name = doc.title || doc.original_name;
     const ok = await confirm({
-      title: `Delete “${doc.title || doc.original_name}”?`,
-      body: "It leaves the library: its pages, facts, resolutions, tags and statements go, and it is taken off any work.",
+      title: `Move “${name}” to the Trash?`,
+      body: "It leaves the library straight away: its pages, facts, resolutions and statements, and it is taken off any work.",
       items: [
-        "The file itself is moved to the bin folder in your AAGAM folder, so it can be added again",
-        ...(notes ? [`Your ${notes} note${notes === 1 ? "" : "s"} on it ${notes === 1 ? "is" : "are"} kept, as general notes`] : []),
+        "From the Trash you can restore it as it was, with your corrections, tags and notes",
         "Values in the company file quoted from it keep their quote",
       ],
-      action: "Delete document",
+      action: "Move to Trash",
       danger: true,
     });
     if (!ok) return;
     try {
       const result = await aagam.deleteDocument(id);
       queryClient.invalidateQueries();
-      toast.success(result.file_kept_in ? `Deleted. The file is in ${result.file_kept_in}.` : "Deleted.", { duration: 6000 });
+      const trashId = result.trash_id;
+      toast.success(
+        (t) => (
+          <span>
+            Moved to the Trash.{" "}
+            {trashId ? (
+              <button
+                className="underline font-medium"
+                onClick={async () => {
+                  toast.dismiss(t.id);
+                  try {
+                    const back = await aagam.restore(trashId);
+                    queryClient.invalidateQueries();
+                    toast.success("Restored.");
+                    navigate(`/documents/${back.document_id}`);
+                  } catch (e) {
+                    toast.error((e as Error).message);
+                  }
+                }}
+              >
+                Undo
+              </button>
+            ) : result.file_kept_in ? `The file is in ${result.file_kept_in}.` : null}
+          </span>
+        ),
+        { duration: 8000 }
+      );
       navigate("/library");
     } catch (e) {
       toast.error((e as Error).message);
@@ -148,7 +173,7 @@ export default function DocumentPage() {
               items={[
                 { label: "Correct this page's text", icon: <FilePen size={14} />, onClick: () => { setShowImage(false); setEditingText(pageData?.text ?? ""); }, hidden: !pageData },
                 { label: "Change the details", icon: <Pencil size={14} />, onClick: () => { setPanel(true); setSide("about"); setEditingDetails(true); } },
-                { label: "Delete this document", icon: <Trash2 size={14} />, danger: true, onClick: removeDocument },
+                { label: "Move to Trash", icon: <Trash2 size={14} />, danger: true, onClick: removeDocument },
               ]}
             />
           </div>
@@ -277,12 +302,16 @@ function Details({ doc, onChange, editing, setEditing }: { doc: DocumentFull; on
   const reindex = useMutation({ mutationFn: () => aagam.reindex(doc.id), onSuccess: (d) => { onChange(d); toast.success("Read again."); } });
   const blank = () => ({
     title: doc.title ?? "", company: doc.company_id ? String(doc.company_id) : "", company_name: doc.company_name ?? "",
-    meeting_kind: doc.meeting_kind ?? "", meeting_date: doc.meeting_date ?? "", note: doc.note ?? "",
+    meeting_kind: doc.meeting_kind ?? "", meeting_date: doc.meeting_date ?? "", note: doc.note ?? "", doc_date: doc.doc_date ?? "",
   });
   const [form, setForm] = useState(blank);
   useEffect(() => { if (editing) setForm(blank()); }, [editing]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = useMutation({
-    mutationFn: () => aagam.change(doc.id, form),
+    // The document's date is sent only when she changed it, so a date AAGAM worked out doesn't become "hers" unasked.
+    mutationFn: () => {
+      const { doc_date, ...rest } = form;
+      return aagam.change(doc.id, doc_date !== (doc.doc_date ?? "") ? { ...rest, doc_date } : rest);
+    },
     onSuccess: (d) => { onChange(d); setEditing(false); toast.success("Saved. These details are kept even when the document is read again."); },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -309,6 +338,9 @@ function Details({ doc, onChange, editing, setEditing }: { doc: DocumentFull; on
           </label>
           <label className="block"><span className="text-xs text-text-muted">Meeting date</span><input type="date" className="input w-full mt-0.5" value={form.meeting_date} onChange={set("meeting_date")} /></label>
         </div>
+        <label className="block"><span className="text-xs text-text-muted">The document's date (the library sorts and filters by it)</span>
+          <input type="date" className="input w-full mt-0.5" value={form.doc_date} onChange={set("doc_date")} aria-label="The document's date" />
+        </label>
         <label className="block"><span className="text-xs text-text-muted">Note on the file</span><textarea className="input w-full mt-0.5 h-16" value={form.note} onChange={set("note")} /></label>
         <div className="flex gap-2 pt-1">
           <button className="btn btn-primary py-1" onClick={() => save.mutate()} disabled={save.isPending}>Save</button>
@@ -333,7 +365,35 @@ function Details({ doc, onChange, editing, setEditing }: { doc: DocumentFull; on
         {doc.company_name && (<><dt className="text-text-muted">About</dt><dd>{doc.company_name}{doc.overrides.company_name ? <span className="text-accent-green"> · yours</span> : null}</dd></>)}
         {doc.company_cin && (<><dt className="text-text-muted">CIN</dt><dd className="font-mono">{doc.company_cin}</dd></>)}
         {doc.meeting_kind && (<><dt className="text-text-muted">Meeting</dt><dd>{MEETINGS[doc.meeting_kind] ?? doc.meeting_kind.toUpperCase()}{doc.meeting_date ? `, ${day(doc.meeting_date)}` : ""}</dd></>)}
-        {doc.client && (<><dt className="text-text-muted">Client</dt><dd><Link to={`/companies/${doc.company_id}`} className="hover:text-accent-brand">{doc.client}</Link></dd></>)}
+        {doc.client && (
+          <>
+            <dt className="text-text-muted">Client</dt>
+            <dd>
+              <Link to={`/companies/${doc.company_id}`} className="hover:text-accent-brand">{doc.client}</Link>
+              {doc.client_why && <span className="block text-text-muted">{doc.client_why === "set by her" ? "You chose it" : `From ${doc.client_why}`}</span>}
+            </dd>
+          </>
+        )}
+        {doc.doc_date && (
+          <>
+            <dt className="text-text-muted">Dated</dt>
+            <dd>
+              {day(doc.doc_date)}{doc.fy ? ` · FY ${doc.fy}` : ""}
+              {doc.doc_date_basis && <span className={clsx("block", doc.doc_date_basis === "set by her" ? "text-accent-green" : "text-text-muted")}>{doc.doc_date_basis === "set by her" ? "Yours" : `From ${doc.doc_date_basis}`}</span>}
+            </dd>
+          </>
+        )}
+        {(doc.source_path || doc.folder_path) && (
+          <>
+            <dt className="text-text-muted">From</dt>
+            <dd className="break-all font-mono text-[11px] leading-4 pt-0.5" title="Where the file was on your computer">
+              {doc.source_path ?? [doc.folder_path, doc.source_folder].filter(Boolean).join("\\")}
+            </dd>
+          </>
+        )}
+        {!doc.source_path && !doc.folder_path && doc.source_folder && (
+          <><dt className="text-text-muted">Folder</dt><dd className="break-all">{doc.source_folder}</dd></>
+        )}
         <dt className="text-text-muted">File</dt><dd className="truncate" title={doc.original_name}>{doc.original_name}</dd>
         <dt className="text-text-muted">Added</dt><dd>{day(doc.ingested_at.slice(0, 10))} · {doc.words.toLocaleString("en-IN")} words</dd>
         {doc.note && (<><dt className="text-text-muted">Note</dt><dd className="whitespace-pre-wrap">{doc.note}</dd></>)}
@@ -492,7 +552,7 @@ function Facts({ doc, goTo }: { doc: DocumentFull; goTo: (p: number) => void }) 
           <ul className="space-y-1">
             {facts[kind].slice(0, 12).map((f) => (
               <li key={f.value} className="group text-sm flex gap-2 items-baseline" title={f.context}>
-                <span className={clsx("min-w-0 truncate", ["cin", "din", "pan", "gstin", "frn"].includes(kind) && "font-mono text-[13px]")}>
+                <span className={clsx("min-w-0 truncate", ["cin", "llpin", "din", "pan", "gstin", "frn"].includes(kind) && "font-mono text-[13px]")}>
                   {kind === "amount" ? rupees(f.value) : kind === "date" ? day(f.value) : kind === "section" ? `s.${f.value}` : f.shown}
                 </span>
                 {f.detail && <span className="text-xs text-text-muted truncate">{f.detail}</span>}

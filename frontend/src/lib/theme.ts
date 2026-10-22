@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import type { UploadItem } from "../api/aagam";
 
 export type Theme = "system" | "light" | "night" | "dark" | "banaras";
 export const THEMES: { key: Theme; label: string; hint: string }[] = [
@@ -52,7 +53,8 @@ export function usePreference(key: string, initial: boolean): [boolean, (v: bool
 /** What the shell offers every page: the upload box, the help panel, the find box, the art switch. */
 export interface Desk {
   theme: Theme;
-  openUpload: (files?: File[]) => void;
+  /** Plain files, or files with their place inside a dropped folder. */
+  openUpload: (files?: (File | UploadItem)[]) => void;
   openHelp: () => void;
   openPalette: () => void;
   art: boolean;

@@ -11,6 +11,7 @@ import hashlib
 import io
 import re
 import shutil
+import threading
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -25,12 +26,17 @@ MAX_PAGES_PER_READ = 10
 MAX_CHARS_PER_READ = 60_000
 SCAN_THRESHOLD = 25  # a page with less text than this is treated as a scan
 IMAGE_LONG_SIDE = 1568  # Claude reads images at up to about this many pixels on the long side
+# PDFium can't be used from two threads at once, not even on different files, and the web server, OCR and folder
+# readers each have threads: every use of it holds this lock.
+PDFIUM = threading.RLock()
 
 DOC_TYPES: dict[str, str] = {
     "certificate_of_incorporation": "Certificate of Incorporation",
     "moa": "Memorandum of Association",
     "aoa": "Articles of Association",
+    "llp_agreement": "LLP agreement (or supplementary agreement)",
     "board_resolution": "Board resolution (certified true copy)",
+    "partners_resolution": "Partners' resolution (certified true copy)",
     "minutes": "Minutes of a meeting",
     "notice": "Notice or agenda of a meeting",
     "attendance": "Attendance record of a meeting",
@@ -38,6 +44,7 @@ DOC_TYPES: dict[str, str] = {
     "auditor_report": "Auditor's report",
     "board_report": "Board's report",
     "consent_dir2": "Director's consent (DIR-2)",
+    "partner_consent": "Consent to act as a partner or designated partner",
     "declaration_dir8": "Director's declaration of non-disqualification (DIR-8)",
     "disclosure_mbp1": "Disclosure of interest (MBP-1)",
     "auditor_consent": "Auditor's consent and eligibility certificate",
@@ -257,22 +264,23 @@ def _html_text(markup: str) -> str:
 def _pdf_pages(path: Path) -> list[PageText]:
     import pypdfium2 as pdfium
 
-    try:
-        pdf = pdfium.PdfDocument(path)
-    except pdfium.PdfiumError as exc:
-        raise Invalid(f"Couldn't open {path.name}: it may be password-protected or damaged ({exc}).") from exc
-    try:
-        pages = []
-        for index in range(len(pdf)):
-            page = pdf[index]
-            textpage = page.get_textpage()
-            text = _tidy(textpage.get_text_range())
-            textpage.close()
-            page.close()
-            pages.append(PageText(index + 1, text, len(text.strip()) < SCAN_THRESHOLD))
-        return pages
-    finally:
-        pdf.close()
+    with PDFIUM:
+        try:
+            pdf = pdfium.PdfDocument(path)
+        except pdfium.PdfiumError as exc:
+            raise Invalid(f"Couldn't open {path.name}: it may be password-protected or damaged ({exc}).") from exc
+        try:
+            pages = []
+            for index in range(len(pdf)):
+                page = pdf[index]
+                textpage = page.get_textpage()
+                text = _tidy(textpage.get_text_range())
+                textpage.close()
+                page.close()
+                pages.append(PageText(index + 1, text, len(text.strip()) < SCAN_THRESHOLD))
+            return pages
+        finally:
+            pdf.close()
 
 
 def _docx_text(path: Path) -> str:
@@ -315,14 +323,15 @@ def render_page(path: Path, page_no: int) -> tuple[bytes, str]:
     if suffix == ".pdf":
         import pypdfium2 as pdfium
 
-        pdf = pdfium.PdfDocument(path)
-        try:
-            page = pdf[page_no - 1]
-            width, height = page.get_size()
-            image = page.render(scale=IMAGE_LONG_SIDE / max(width, height)).to_pil()
-            page.close()
-        finally:
-            pdf.close()
+        with PDFIUM:
+            pdf = pdfium.PdfDocument(path)
+            try:
+                page = pdf[page_no - 1]
+                width, height = page.get_size()
+                image = page.render(scale=IMAGE_LONG_SIDE / max(width, height)).to_pil()
+                page.close()
+            finally:
+                pdf.close()
     elif suffix in IMAGE_SUFFIXES:
         image = Image.open(path)
         image.thumbnail((IMAGE_LONG_SIDE, IMAGE_LONG_SIDE))
@@ -349,6 +358,25 @@ def _unsupported(suffix: str) -> str:
 # -------------------------------------------------------------------- intake
 
 
+@dataclass(frozen=True)
+class Prepared:
+    """A file read ahead of filing it: its fingerprint, and its pages when they could be read away from the filer."""
+
+    sha256: str
+    size: int
+    pages: list[PageText] | None = None  # None: read when it is filed (always so for a PDF)
+
+
+def prepare(source_path: str | Path) -> Prepared:
+    """Fingerprint a file and read its text without touching the database, so it can run on another thread while
+    other files are filed (PDFium itself still reads one PDF at a time, under PDFIUM)."""
+    src = Path(source_path).expanduser()
+    size = src.stat().st_size
+    digest = _sha256(src)
+    pages = None if size > MAX_BYTES else extract_pages(src)
+    return Prepared(digest, size, pages)
+
+
 def ingest(
     vault: Vault,
     settings: Settings,
@@ -356,8 +384,10 @@ def ingest(
     company_id: int | None = None,
     doc_type: str = "other",
     note: str | None = None,
+    prepared: Prepared | None = None,
 ) -> dict[str, Any]:
-    """Copy a file into the company's documents folder and index its text."""
+    """Copy a file into the company's documents folder and index its text. `prepared` is the same file already
+    fingerprinted (and perhaps read) by prepare()."""
     src = Path(source_path).expanduser()
     if not src.is_file():
         raise NotFound(f"There is no file at {src}.")
@@ -369,7 +399,7 @@ def ingest(
     if src.stat().st_size > MAX_BYTES:
         raise Invalid(f"{src.name} is larger than {MAX_BYTES // (1024 * 1024)} MB; split it into parts first.")
 
-    digest = _sha256(src)
+    digest = prepared.sha256 if prepared else _sha256(src)
     existing = vault.conn.execute(
         "SELECT id, stored_path, pages FROM documents WHERE sha256 = ? AND company_id IS ?", (digest, company_id)
     ).fetchone()
@@ -387,7 +417,7 @@ def ingest(
     dest = _unique(folder / f"{date.today():%Y%m%d}-{doc_type}-{_slug(src.stem)}{suffix}")
     shutil.copy2(src, dest)
     try:
-        pages = extract_pages(dest)
+        pages = prepared.pages if prepared and prepared.pages is not None else extract_pages(dest)
     except BaseException:
         dest.unlink(missing_ok=True)
         raise

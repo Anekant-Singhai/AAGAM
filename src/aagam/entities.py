@@ -24,6 +24,7 @@ KINDS = {
     "company": "Companies",
     "din": "DINs",
     "cin": "CINs",
+    "llpin": "LLPINs",
     "gstin": "GSTINs",
     "frn": "Audit firms (FRN)",
     "membership_no": "Institute members",
@@ -57,7 +58,7 @@ def key_of(kind: str, value: str) -> str:
         v = re.sub(r"\bpvt\.?\b", "private", v)
         v = re.sub(r"\bltd\.?\b", "limited", v)
         return re.sub(r"[^a-z0-9]+", " ", v).strip()
-    return v.upper() if kind in ("cin", "gstin", "frn", "membership_no") else v.lower()
+    return v.upper() if kind in ("cin", "llpin", "gstin", "frn", "membership_no") else v.lower()
 
 
 def gstin_info(gstin: str) -> dict[str, Any]:
@@ -177,7 +178,7 @@ def dossier(vault: Vault, kind: str, key: str) -> dict[str, Any]:
     out["identifiers"] = _identifiers(vault, kind, name, rows, linked_dins)
     out["company_file"] = _company_file(vault, kind, name, rows, linked_dins)
     out["appears_with"] = _appears_with(vault, doc_ids, kind, key)
-    if kind in ("company", "cin"):
+    if kind in ("company", "cin", "llpin"):
         out["resolutions"] = _resolutions(vault, kind, name, rows)
         out["financials"] = _financials(vault, kind, name, out["company_file"])
     if kind == "gstin":
@@ -199,7 +200,8 @@ def _identifiers(vault: Vault, kind: str, name: str, rows: list[dict[str, Any]],
         # A CIN is the company's when a document is mainly about that company; otherwise offer CINs seen alongside.
         about = vault._rows("SELECT DISTINCT company_cin FROM doc_meta WHERE company_cin IS NOT NULL AND lower(company_name) = lower(?)", (name,))
         if about:
-            ids["CIN"] = [a["company_cin"] for a in about]
+            for a in about:
+                ids.setdefault("LLPIN" if validators.is_llpin(a["company_cin"]) else "CIN", []).append(a["company_cin"])
         else:
             doc_ids = sorted({r["document_id"] for r in rows})
             marks = ",".join("?" * len(doc_ids))
@@ -221,9 +223,9 @@ def _company_file(vault: Vault, kind: str, name: str, rows: list[dict[str, Any]]
             for p in vault._rows("SELECT id, name, din FROM parties WHERE kind = 'individual'"):
                 if key_of("person", p["name"]) == key_of("person", name):
                     found.append({"type": "party", **p, "appointments": vault.party(p["id"])["appointments"]})
-    if kind in ("company", "cin"):
-        for c in vault._rows("SELECT id, name, cin, company_class, status FROM companies"):
-            if (kind == "cin" and c["cin"] == name) or (kind == "company" and key_of("company", c["name"]) == key_of("company", name)):
+    if kind in ("company", "cin", "llpin"):
+        for c in vault._rows("SELECT id, name, cin, entity_type, company_class, status FROM companies"):
+            if (kind in ("cin", "llpin") and c["cin"] == name) or (kind == "company" and key_of("company", c["name"]) == key_of("company", name)):
                 found.append({"type": "company", **c})
     if kind == "gstin":
         for r in vault._rows("SELECT r.company_id, c.name, c.cin FROM registrations r JOIN companies c ON c.id = r.company_id WHERE r.kind = 'gstin' AND r.number = ?", (name,)):
@@ -260,7 +262,7 @@ def _appears_with(vault: Vault, doc_ids: list[int], kind: str, key: str) -> list
 
 
 def _resolutions(vault: Vault, kind: str, name: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if kind == "cin":
+    if kind in ("cin", "llpin"):
         docs = vault._rows("SELECT document_id FROM doc_meta WHERE company_cin = ?", (name,))
         ids = [d["document_id"] for d in docs]
         if not ids:

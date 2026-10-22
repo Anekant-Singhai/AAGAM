@@ -37,18 +37,32 @@ export const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
         key: "library", title: "Library", icon: "files", to: "/library",
         what: "Every document, read page by page: its type, the company, the meeting, facts and resolutions.",
         how: [
-          "Drop files anywhere in the window, or use Add documents. PDF (scanned too), Word, Excel, PowerPoint, Outlook, RTF, HTML and text all work.",
+          "Drop files or whole folders anywhere in the window, or use Add documents. PDF (scanned too), Word, Excel, PowerPoint, Outlook, RTF, HTML and text all work.",
+          "Each document is filed under its client by itself: from its CIN or LLPIN, the name of the folder it was in, or the company it names. You can always change it.",
+          "Each document gets the date it is of: its meeting, the date of its accounts, its \"Date:\" line, or else when the file was last changed.",
+          "Filter by name, type, client, kind of file, financial year, dates, folder and tag; sort by date or name; and group the list by client, type, year, month or folder.",
           "Scanned pages are read by Windows OCR: five pages straight away, longer documents in the background.",
-          "Filter by name, year, type, client and tag. Tags are added automatically and by you.",
         ],
         power: ["rules", "local"],
+      },
+      {
+        key: "folders", title: "Folders from your computer", icon: "folder", to: "/library?add=folder",
+        what: "Point AAGAM at a folder, such as D:\\Clients, and it reads every file in it and in the folders inside it, while you carry on working.",
+        how: [
+          "Library → Add a folder. Type the folder's place or use Browse…; AAGAM shows how many files it can read before it starts.",
+          "Your files stay where they are. AAGAM keeps its own copy of each, so moving or deleting the originals later doesn't harm the library.",
+          "A big folder takes a while. The Library shows how far it has got; if AAGAM is closed, it carries on where it stopped next time.",
+          "Tick \"Keep watching\" and files saved into the folder later are read too. Look again reads only what is new or changed.",
+          "Files AAGAM can't read yet (old .doc or .ppt files, zips) are counted and named, with what to do about them.",
+        ],
+        power: ["rules"],
       },
       {
         key: "find", title: "Find anything (Ctrl+K)", icon: "command", to: "/",
         what: "One box over everything: pages, work, notes, people, companies, statements and resolutions.",
         how: [
           "Press Ctrl+K on any page and type. Enter on the first line searches every page.",
-          "Type a CIN, GSTIN or DIN and AAGAM recognises it and offers its dossier.",
+          "Type a CIN, LLPIN, GSTIN or DIN and AAGAM recognises it and offers its dossier.",
           "Type the start of a place (\"fin\", \"work\") to jump there, or \"new work\", \"new note\", \"night\".",
         ],
         power: ["rules"],
@@ -68,7 +82,7 @@ export const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
         what: "Everyone named in the library, however it was written, with a dossier on each.",
         how: [
           "A dossier shows every document and page they appear on, with the words around it.",
-          "Their DIN, CIN or GSTIN, their record in the company file, and who they appear with.",
+          "Their DIN, CIN, LLPIN or GSTIN, their record in the company file, and who they appear with.",
           "A GSTIN is decoded (state, the PAN inside, which registration); a CIN too (listed, state, year, kind).",
         ],
         power: ["rules"],
@@ -102,8 +116,18 @@ export const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
         how: [
           "A fact that isn't one (a heading read as a company): hover it and hide it in that document or everywhere. Bring it back from People and companies → Hidden.",
           "Tags: Library → Tags renames, merges or deletes them; automatic tagging follows.",
-          "Deleting a document moves the file to the bin folder in your AAGAM folder, and keeps your notes on it as general notes.",
+          "A document you delete goes to the Trash, and can be restored from there as it was.",
           "Work, notes, statements, resolutions, clients and people can all be deleted from their ⋯ menus.",
+        ],
+        power: ["rules"],
+      },
+      {
+        key: "trash", title: "Trash", icon: "trash", to: "/trash",
+        what: "Deleted documents wait in the Trash, so you can change your mind.",
+        how: [
+          "In a document, ⋯ → Move to Trash. In the Library, choose several and Move to Trash.",
+          "Restore puts a document back as it was: its pages, your corrections, summary, tags and notes, and the work it was on.",
+          "Delete forever, or Empty the Trash, removes the files from your computer for good.",
         ],
         power: ["rules"],
       },
@@ -217,6 +241,42 @@ export const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
       },
     ],
   },
+  {
+    title: "Looking after AAGAM",
+    blurb: "New versions arrive by themselves, and AAGAM can check and repair itself.",
+    features: [
+      {
+        key: "updates", title: "Updates", icon: "sparkles", to: "/system",
+        what: "When a new version of AAGAM is published, AAGAM finds it and puts it in place. Your documents and records are never touched.",
+        how: [
+          "A note on Home and a mark in the sidebar say when a new version is ready; Update now puts it in place in about a minute.",
+          "With automatic updates on, a new version installs itself when AAGAM is idle. At 8:00, if AAGAM is closed, it is installed too. Open AAGAM afterwards.",
+          "If an update goes wrong, the version you had is put back. Your documents are never touched. Close Claude Desktop before updating, and open it again afterwards.",
+        ],
+        power: ["rules"],
+      },
+      {
+        key: "health", title: "Health and repairs", icon: "heart", to: "/system",
+        what: "A check of everything AAGAM needs on this computer, with a button to fix what is missing.",
+        how: [
+          "Updates & health → Health lists each part: fine, worth a look, or needs fixing, with what to do.",
+          "Install local AI, connect Claude Desktop, put the desktop shortcuts back, or repair AAGAM, each with one button.",
+          "Uninstall removes the program but keeps your data folder, unless you choose to delete that too.",
+        ],
+        power: ["rules"],
+      },
+      {
+        key: "backup", title: "Backups and a report for help", icon: "life", to: "/system",
+        what: "A copy of your documents and records, and a small file you can send if something goes wrong.",
+        how: [
+          "Updates & health, then Back up my data. The copy goes in Documents, in a folder called AAGAM backups. Open the READ ME.txt inside it to put the copy back.",
+          "On a new laptop: install AAGAM, close it, and replace the AAGAM data folder with that copy.",
+          "Save a report for help writes a file on the Desktop. It has the health check and recent logs. It does not contain your documents or your update key.",
+        ],
+        power: ["rules"],
+      },
+    ],
+  },
 ];
 
 export const SHORTCUTS: [string, string][] = [
@@ -240,12 +300,25 @@ export const PAGE_HELP: [RegExp, string, string[]][] = [
     "Attach documents from the library; set the meeting and due dates on the right.",
   ]],
   [/^\/work/, "Work register", ["New work lays out the checklist for that kind of job.", "In hand, Done and Dropped keep past work findable."]],
-  [/^\/library/, "Library", ["Drop files anywhere, or use Add documents.", "Filter by name, year, type, client and tag. Click a tag to see its documents."]],
+  [/^\/library/, "Library", [
+    "Drop files or folders anywhere, or use Add documents. Add a folder reads a whole folder from your computer in the background, and can keep watching it.",
+    "Filter by type, client, kind of file, financial year, dates and folder; the numbers say how many documents each choice shows. Click a tag to see its documents.",
+    "Sort by date or name, and group the list by client, type, year, month or folder.",
+    "Hover a document and tick it to choose several; Move to Trash takes them out (they can be restored).",
+  ]],
+  [/^\/trash/, "Trash", ["Restore puts a document back as it was, with your corrections, tags and notes.", "Delete forever and Empty the Trash can't be undone."]],
+  [/^\/system/, "Updates & health", [
+    "Check now looks for a new version; Update now puts it in place, and AAGAM opens again by itself.",
+    "Health lists what AAGAM needs on this computer, with a button to fix each missing part.",
+    "Back up my data copies your documents to Documents. Save a report for help writes a file on the Desktop, with no documents in it.",
+    "Uninstall keeps your data folder unless you choose otherwise.",
+  ]],
   [/^\/documents/, "Reading a document", [
     "← and → turn the pages. The image button shows the page as it looks.",
     "Find in this document lists the pages with matches.",
     "The side panel: About (type, details, summary, tags), Checks (notice check, statements, resolutions), Facts, Insights (investments, legal matters, law cited and more, with their pages), and Notes.",
-    "⋯ corrects this page's text (an OCR misreading) or deletes the document. Hover a fact to hide it if it isn't one.",
+    "⋯ corrects this page's text (an OCR misreading) or moves the document to the Trash. Hover a fact to hide it if it isn't one.",
+    "About shows the document's date and how it was found, the client and why, and where the file came from on your computer.",
   ]],
   [/^\/search/, "Search", ["Every word must appear; quotes keep a phrase together.", "On the right: work, notes, people and statements that match too."]],
   [/^\/precedents/, "Precedents", ["Pick a section or topic, or type words; open one to read its explanatory statement and copy it."]],

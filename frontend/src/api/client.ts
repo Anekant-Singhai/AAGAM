@@ -4,7 +4,14 @@ const BASE = "/api";
 // other websites open in her browser from posting to AAGAM.
 const HEADERS = { "X-AAGAM": "1" };
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(message: string, readonly status = 0) {
+    super(message);
+  }
+}
+
+/** True when the server has no such API: an older AAGAM, so the part of the window that needs it stays hidden. */
+export const missing = (e: unknown) => e instanceof ApiError && (e.status === 404 || e.status === 405);
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { ...init, headers: { ...HEADERS, ...init.headers } });
@@ -16,7 +23,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       /* not JSON */
     }
-    throw new ApiError(message || `HTTP ${res.status}`);
+    throw new ApiError(message || `HTTP ${res.status}`, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -35,6 +42,16 @@ export const api = {
   form: <T>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
+
+/** The server's health answer, without the change header or error handling: used while AAGAM restarts after an update. */
+export async function health(): Promise<{ ok: boolean; version: string; commit?: string | null } | null> {
+  try {
+    const res = await fetch(`${BASE}/health`, { cache: "no-store" });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
 
 export function qs(params: Record<string, string | number | boolean | undefined | null>): string {
   const q = new URLSearchParams();

@@ -48,7 +48,8 @@ def _looks_like(value: str) -> str | None:
     """Name the identifier she typed, so the interface can say "that's a CIN" and offer its dossier."""
     from csdesk import validators
 
-    for name, check in (("cin", validators.cin), ("gstin", validators.gstin), ("din", validators.din), ("pan", validators.pan)):
+    for name, check in (("cin", validators.cin), ("llpin", validators.llpin), ("gstin", validators.gstin), ("din", validators.din),
+                        ("pan", validators.pan)):
         try:
             check(value)
             return name

@@ -1,0 +1,14 @@
+# Windows scripts keep Windows line endings, also in GitHub's "Download ZIP" (cmd.exe misreads some LF-only batch files).
+* text=auto
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.zip binary

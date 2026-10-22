@@ -46,7 +46,7 @@ export default function DossierPage() {
   if (error) return <p className="p-6 text-accent-red">{(error as Error).message}</p>;
   if (!d) return <p className="p-6 text-text-muted">Putting the dossier together…</p>;
 
-  const mono = ["din", "cin", "gstin", "frn", "membership_no"].includes(d.kind);
+  const mono = ["din", "cin", "llpin", "gstin", "frn", "membership_no"].includes(d.kind);
   const others = d.spellings.filter((s) => s !== d.name);
   const pages = d.documents.reduce((n, doc) => n + doc.pages.length, 0);
 
@@ -136,7 +136,7 @@ export default function DossierPage() {
                     <dt className="text-xs text-text-muted">{label}</dt>
                     <dd className="flex flex-wrap gap-1.5 mt-0.5">
                       {values.map((v) => {
-                        const k = label.startsWith("DIN") ? "din" : label.includes("CIN") ? "cin" : label === "Named as" ? "person" : null;
+                        const k = label.startsWith("DIN") ? "din" : label.includes("LLPIN") ? "llpin" : label.includes("CIN") ? "cin" : label === "Named as" ? "person" : null;
                         const target = k === "person" ? v.toLowerCase().replace(/^(mr|ms|mrs|shri|smt|dr)\.?\s+/, "").replace(/[^a-z]+/g, " ").trim() : k === "din" ? v.toLowerCase() : v;
                         return k ? (
                           <Link key={v} to={`/entities/${k}/${encodeURIComponent(target)}`} className={clsx("chip tag-0", k !== "person" && "font-mono")}>{v}</Link>

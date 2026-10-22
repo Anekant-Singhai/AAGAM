@@ -1,7 +1,8 @@
 import { api, qs } from "./client";
 import type {
-  AiStatus, Analysis, ChecklistStep, CompanyFile, Dependents, DocInsight, Dossier, DocumentFull, DocumentRow, DueItem, EntityRow, Everything, FieldSpec,
-  HiddenFact, InsightPurpose, InsightRegister, LoanCheck, Meta, Note, NoticeCheck, Overview, PartyRow, Precedent, PrecedentFull, RecordRow, SearchHit, Work, WorkRow,
+  AiStatus, Analysis, ChecklistStep, CompanyFile, Dependents, DocInsight, Dossier, DocumentFull, DocumentRow, DueItem, EntityRow, Everything, Facets, FieldSpec,
+  Folder, FolderDetail, FolderPreview, HealthCheck, HiddenFact, InsightPurpose, InsightRegister, LoanCheck, Meta, Note, NoticeCheck, Overview, PartyRow,
+  Precedent, PrecedentFull, RecordRow, SearchHit, SystemInfo, SystemTask, TrashList, UpdateState, Work, WorkRow,
 } from "../types";
 
 export interface LibraryFilter {
@@ -10,8 +11,39 @@ export interface LibraryFilter {
   tag?: string;
   name?: string;
   year?: string;
+  fy?: string;
+  date_from?: string;
+  date_to?: string;
+  folder?: string;
+  within?: string;
+  kind?: string;
+  /** "true" or "false" as text, so that "only documents without scans" survives the query string. */
+  scanned?: string;
+  sort?: string;
   limit?: number;
   offset?: number;
+}
+
+/** A file to add, with where it sat inside a folder she dropped ("Acme/2024-25/notice.pdf"), or "" for a loose file. */
+export interface UploadItem {
+  file: File;
+  path: string;
+}
+
+/** A moment as this computer's clock shows it (YYYY-MM-DDTHH:MM:SS), as AAGAM keeps a file's own dates. */
+function localTime(ms: number): string {
+  const d = new Date(ms);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+}
+
+export interface FolderOptions {
+  path: string;
+  company: string;
+  doc_type: string;
+  tags: string[];
+  precedent: boolean;
+  watch: boolean;
 }
 
 export interface PrecedentFilter {
@@ -31,6 +63,7 @@ export interface UploadResult {
   already_on_file?: boolean;
   doc_type?: string;
   title?: string | null;
+  client?: string | null;
 }
 
 export const aagam = {
@@ -41,21 +74,29 @@ export const aagam = {
   due: (days = 60) => api.get<{ today: string; items: DueItem[] }>(`/due${qs({ days })}`),
 
   documents: (f: LibraryFilter = {}) => api.get<{ total: number; documents: DocumentRow[] }>(`/documents${qs({ ...f })}`),
+  facets: (f: LibraryFilter = {}) => api.get<Facets>(`/documents/facets${qs({ ...f })}`),
   document: (id: number) => api.get<DocumentFull>(`/documents/${id}`),
   page: (id: number, page: number) => api.get<{ page_no: number; text: string; needs_vision: number }>(`/documents/${id}/pages/${page}`),
   pageImageUrl: (id: number, page: number) => `/api/documents/${id}/pages/${page}/image`,
   fileUrl: (id: number, download = false) => `/api/documents/${id}/file${download ? "?download=true" : ""}`,
   searchIn: (id: number, q: string) => api.get<{ pages: { page: number; text: string }[] }>(`/documents/${id}/search${qs({ q })}`),
-  change: (id: number, body: { title?: string; doc_type?: string; company?: string; note?: string }) =>
+  change: (id: number, body: {
+    title?: string; doc_type?: string; company?: string; note?: string; doc_date?: string; company_name?: string; meeting_kind?: string; meeting_date?: string;
+  }) =>
     api.patch<DocumentFull>(`/documents/${id}`, body),
   tags: (id: number, add: string[] = [], remove: string[] = []) => api.post<DocumentFull>(`/documents/${id}/tags`, { add, remove }),
   saveSummary: (id: number, summary: string, key_points: string[] = []) =>
     api.put<DocumentFull>(`/documents/${id}/summary`, { summary, key_points }),
   summarise: (id: number) => api.post<{ queued: boolean; ai: AiStatus }>(`/documents/${id}/summarise`),
   reindex: (id: number) => api.post<DocumentFull>(`/documents/${id}/reindex`),
-  upload: (files: File[], options: { company?: string; doc_type?: string; tags?: string[]; note?: string }) => {
+  upload: (items: UploadItem[], options: { company?: string; doc_type?: string; tags?: string[]; note?: string }) => {
     const form = new FormData();
-    files.forEach((f) => form.append("files", f));
+    items.forEach(({ file, path }) => {
+      form.append("files", file);
+      // One of each per file, in the same order, so the server can tell which folder each came from.
+      form.append("paths", path);
+      form.append("modified", file.lastModified ? localTime(file.lastModified) : "");
+    });
     if (options.company) form.append("company", options.company);
     if (options.doc_type) form.append("doc_type", options.doc_type);
     if (options.tags?.length) form.append("tags", options.tags.join(","));
@@ -63,6 +104,40 @@ export const aagam = {
     return api.form<{ results: UploadResult[] }>("/documents", form);
   },
   inbox: () => api.post<{ results: UploadResult[] }>("/inbox"),
+
+  // Folders on her computer, read in the background (and watched for new files, if she likes).
+  folders: () => api.get<{ folders: Folder[] }>("/folders"),
+  folder: (id: number) => api.get<FolderDetail>(`/folders/${id}`),
+  previewFolder: (path: string) => api.post<FolderPreview>("/folders/preview", { path }),
+  addFolder: (options: FolderOptions) => api.post<Folder>("/folders", options),
+  changeFolder: (id: number, body: Partial<Omit<FolderOptions, "path">>) => api.patch<Folder>(`/folders/${id}`, body),
+  scanFolder: (id: number) => api.post<Folder>(`/folders/${id}/scan`),
+  stopFolder: (id: number) => api.post<Folder>(`/folders/${id}/stop`),
+  forgetFolder: (id: number, documents: "keep" | "trash") => api.del<{ forgotten: number; documents_trashed: number }>(`/folders/${id}${qs({ documents })}`),
+  browseFolder: () => api.post<{ path: string | null }>("/folders/browse"),
+
+  // The Trash.
+  trash: () => api.get<TrashList>("/trash"),
+  trashDocuments: (ids: number[]) => api.post<{ trashed: number[]; failed: { id: number; error: string }[] }>("/documents/trash", { ids }),
+  restore: (trashId: number) => api.post<{ document_id: number; name: string }>(`/trash/${trashId}/restore`),
+  deleteForever: (trashId: number) => api.del<{ deleted: number }>(`/trash/${trashId}`),
+  emptyTrash: () => api.post<{ deleted: number; files: number }>("/trash/empty"),
+  restoreLoose: (name: string) => api.post<{ document_id: number }>("/trash/loose/restore", { name }),
+  deleteLoose: (name: string) => api.del<{ deleted: string }>(`/trash/loose${qs({ name })}`),
+
+  // This copy of AAGAM and this computer: updates, health, repairs, uninstalling.
+  system: () => api.get<SystemInfo>("/system"),
+  checkUpdates: () => api.post<UpdateState>("/system/updates/check"),
+  applyUpdate: () => api.post<{ started: boolean }>("/system/updates/apply"),
+  updateSettings: (body: { auto_update?: boolean; repo?: string; branch?: string; token?: string | null }) => api.put<SystemInfo>("/system/updates/settings", body),
+  health: () => api.get<{ checks: HealthCheck[] }>("/system/health"),
+  repair: (action: string) => api.post<{ started: boolean; task: string }>(`/system/repair/${encodeURIComponent(action)}`),
+  task: (task: string) => api.get<SystemTask>(`/system/tasks/${encodeURIComponent(task)}`),
+  uninstall: (removeData: boolean, confirm: string) => api.post<{ started: boolean }>("/system/uninstall", { remove_data: removeData, confirm }),
+  backup: (into?: string) => api.post<{ started: boolean; task: string }>("/system/backup", into ? { into } : {}),
+  job: (task: string) => api.get<{ task: string; status: "running" | "done" | "failed"; path: string | null; files: number; bytes: number; error: string | null }>(`/system/jobs/${encodeURIComponent(task)}`),
+  supportReport: (into?: string) => api.post<{ path: string; bytes: number }>("/system/support", into ? { into } : {}),
+  reveal: (path: string) => api.post<{ shown: boolean }>("/system/reveal", { path }),
 
   search: (q: string, f: LibraryFilter = {}) =>
     api.get<{ query: string; documents: SearchHit[]; matching_documents: number }>(`/search${qs({ q, ...f })}`),
@@ -112,7 +187,8 @@ export const aagam = {
   deleteNote: (id: number) => api.del<{ deleted: number }>(`/notes/${id}`),
 
   // Her corrections and deletions.
-  deleteDocument: (id: number) => api.del<{ deleted: number; name: string; file_kept_in: string | null; notes_kept: number }>(`/documents/${id}`),
+  deleteDocument: (id: number) =>
+    api.del<{ deleted: number; name: string; file_kept_in: string | null; notes_kept: number; trash_id?: number | null }>(`/documents/${id}`),
   editPage: (id: number, page: number, text: string) => api.put<{ page_no: number; text: string; needs_vision: number }>(`/documents/${id}/pages/${page}`, { text }),
   editPrecedent: (id: number, changes: Record<string, unknown>) => api.patch<PrecedentFull>(`/precedents/${id}`, changes),
   deletePrecedent: (id: number) => api.del<{ deleted: number }>(`/precedents/${id}`),

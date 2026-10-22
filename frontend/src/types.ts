@@ -18,6 +18,133 @@ export interface DocumentRow {
   has_summary: number;
   resolutions: number;
   tags: string[];
+  media_type?: string | null;
+  kind?: string | null;
+  doc_date?: string | null;
+  doc_date_basis?: string | null;
+  fy?: string | null;
+  source_folder?: string | null;
+  folder_id?: number | null;
+  client_why?: string | null;
+}
+
+/** One choice of a library filter, with how many documents it would show. */
+export interface Facet {
+  key: string | number | null;
+  label?: string | null;
+  documents: number;
+}
+
+export interface Facets {
+  types: Facet[];
+  clients: Facet[];
+  fys: Facet[];
+  folders: Facet[];
+  inside: Facet[];
+  kinds: Facet[];
+}
+
+export interface Folder {
+  id: number;
+  path: string;
+  client_mode: "auto" | "one" | "none";
+  company_id: number | null;
+  client: string | null;
+  doc_type: string | null;
+  tags: string[];
+  precedent: boolean;
+  watch: boolean;
+  status: "queued" | "running" | "done" | "stopped" | "failed";
+  found: number;
+  done: number;
+  added: number;
+  already: number;
+  failed: number;
+  skipped: Record<string, number> | null;
+  current: string | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  documents: number;
+  exists: boolean;
+}
+
+export interface FolderDetail extends Folder {
+  failures: { rel_path: string; error: string | null }[];
+  recent: { rel_path: string; status: string; document_id: number | null }[];
+}
+
+export interface FolderPreview {
+  path: string;
+  exists: boolean;
+  files: number;
+  by_kind: Record<string, number>;
+  bytes: number;
+  folders: number;
+  skipped: Record<string, number>;
+  too_big: number;
+  sample: string[];
+  truncated: boolean;
+  already_added: number | null;
+}
+
+export interface TrashItem {
+  id: number;
+  kind: string;
+  item_id: number;
+  name: string;
+  detail: string | null;
+  deleted_at: string;
+  size: number | null;
+  file_missing: boolean;
+}
+
+export interface TrashList {
+  items: TrashItem[];
+  loose: { name: string; size: number; modified: string }[];
+  bytes: number;
+  count: number;
+}
+
+export interface UpdateState {
+  checked_at: string | null;
+  available: boolean;
+  latest: { commit: string; date: string | null; version: string | null } | null;
+  changes: { commit: string; date: string | null; message: string }[];
+  status: "idle" | "checking" | "downloading" | "ready" | "applying" | "failed" | "done";
+  error: string | null;
+  needs_token: boolean;
+  last_update: { at: string; from: string | null; to: string | null; ok: boolean; error: string | null; notes: string[] } | null;
+}
+
+export interface SystemInfo {
+  version: string;
+  commit: string | null;
+  installed_at: string | null;
+  app_folder: string | null;
+  data_folder: string | null;
+  mode: "archive" | "git" | "none";
+  auto_update: boolean;
+  repo: string | null;
+  branch: string | null;
+  has_token: boolean;
+  updates: UpdateState;
+}
+
+export interface HealthCheck {
+  key: string;
+  label: string;
+  status: "ok" | "warn" | "fail";
+  detail: string;
+  fix: string | null;
+  action: string | null;
+}
+
+export interface SystemTask {
+  task: string;
+  status: "running" | "done" | "failed";
+  log: string[];
 }
 
 export interface Fact {
@@ -76,6 +203,15 @@ export interface DocumentFull {
   works?: { id: number; title: string; status: string }[];
   notes?: Note[];
   ai_jobs: { task: string; status: string; model: string | null; note: string | null; finished_at: string | null }[];
+  doc_date?: string | null;
+  doc_date_basis?: string | null;
+  fy?: string | null;
+  source_path?: string | null;
+  source_folder?: string | null;
+  folder_id?: number | null;
+  folder_path?: string | null;
+  file_modified?: string | null;
+  client_why?: string | null;
 }
 
 export interface SearchHit {
@@ -391,6 +527,7 @@ export interface Meta {
   doc_types: Record<string, string>;
   data_folder: string;
   inbox: string;
+  file_kinds?: Record<string, string>;
 }
 
 const COLOURS = 6;

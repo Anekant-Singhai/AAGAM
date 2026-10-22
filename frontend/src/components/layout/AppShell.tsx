@@ -1,6 +1,7 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { FileUp } from "lucide-react";
+import toast from "react-hot-toast";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import CommandPalette from "../CommandPalette";
@@ -9,6 +10,8 @@ import UploadDialog from "../UploadDialog";
 import Emblem from "../Emblem";
 import GhatScene from "../GhatScene";
 import { DeskContext, usePreference, useTheme } from "../../lib/theme";
+import { asItem, dropHasFolder, filesFromDrop } from "../../lib/drop";
+import type { UploadItem } from "../../api/aagam";
 import { ConfirmProvider } from "../dialogs";
 
 const typing = (e: KeyboardEvent) => {
@@ -22,11 +25,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [art, setArt] = usePreference("aagam.art", true);
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
-  const [upload, setUpload] = useState<{ open: boolean; files: File[] }>({ open: false, files: [] });
+  const [upload, setUpload] = useState<{ open: boolean; files: UploadItem[] }>({ open: false, files: [] });
   const [dragging, setDragging] = useState(false);
   const depth = useRef(0);
 
-  const openUpload = useCallback((files: File[] = []) => setUpload({ open: true, files }), []);
+  const openUpload = useCallback(
+    (files: (File | UploadItem)[] = []) => setUpload({ open: true, files: files.map((f) => (f instanceof File ? asItem(f) : f)) }),
+    []
+  );
   const closeHelp = useCallback(() => setHelp(false), []);
   const closeUpload = useCallback(() => setUpload({ open: false, files: [] }), []);
   const desk = useMemo(() => ({ theme, openUpload, openHelp: () => setHelp(true), openPalette: () => setPalette(true), art, setArt }), [theme, openUpload, art, setArt]);
@@ -66,9 +72,25 @@ export default function AppShell({ children }: { children: ReactNode }) {
       e.preventDefault();
       depth.current = 0;
       setDragging(false);
-      const files = Array.from(e.dataTransfer?.files ?? []);
       // A drop on the upload box itself is handled there.
-      if (files.length && !(e.target as HTMLElement)?.closest?.("[role=dialog]")) openUpload(files);
+      if ((e.target as HTMLElement)?.closest?.("[role=dialog]") || !e.dataTransfer) return;
+      if (dropHasFolder(e.dataTransfer)) {
+        // A folder: walk into it, keeping where each file sat, so the library can sort them by folder.
+        const reading = toast.loading("Looking through the folder…");
+        filesFromDrop(e.dataTransfer)
+          .then((items) => {
+            toast.dismiss(reading);
+            if (items.length) openUpload(items);
+            else toast.error("There were no files in that folder.");
+          })
+          .catch(() => {
+            toast.dismiss(reading);
+            toast.error("That folder couldn't be read. Try Library → Add a folder.");
+          });
+        return;
+      }
+      const files = Array.from(e.dataTransfer.files ?? []);
+      if (files.length) openUpload(files);
     };
     window.addEventListener("dragenter", enter);
     window.addEventListener("dragleave", leave);
@@ -103,7 +125,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <div className="relative card px-8 py-6 text-center pop-in">
               <FileUp size={28} className="mx-auto text-accent-brand mb-2" />
               <p className="display text-lg font-semibold">Drop to add to the library</p>
-              <p className="text-sm text-text-muted mt-1">You can choose the client and type next.</p>
+              <p className="text-sm text-text-muted mt-1">Files or whole folders. You can choose the client and type next.</p>
             </div>
           </div>
         )}

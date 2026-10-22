@@ -11,11 +11,33 @@ Sources checked on 2026-10-09 for the rules that changed recently:
   30 days of a change, under Rule 12A as substituted by G.S.R. 943(E)
   (31-12-2025, in force 31-03-2026). The cycle anchor varies by person, so
   the date comes from each person's `kyc_next_due` rather than a formula.
+  Designated partners of LLPs hold DINs, so the same KYC applies to them.
+
+Sources checked on 2026-10-22 for LLPs (LLP Act, 2008 and LLP Rules, 2009):
+- Form 11 within 60 days of the year end (30 May): s.35(1), rule 25(1).
+- Form 8 within 30 days from six months after the year end (30 October):
+  s.34(3), rule 24(4).
+- Form 3 within 30 days of incorporation for the LLP agreement, and within
+  30 days of any change in it: s.23(2), rule 21(1).
+- Form 4 within 30 days of a partner joining or leaving: s.25(2), rule 22.
+- Form 15 within 30 days of a change of registered office: s.13(3), rule 17.
+- Form 5 within 30 days of a change of name: s.16, rule 20(2). When the
+  30 days start (the partners' decision or the new name's approval) is a
+  point she should confirm, so it is marked "check".
+- LLP BEN-2 within 30 days of receiving a BEN-1 declaration: LLP (Significant
+  Beneficial Owners) Rules, 2023 (notified 09-11-2023); marked "check" until
+  the rule number is confirmed against the Gazette.
+- First financial year: an LLP incorporated after 30 September may end its
+  first year on 31 March of the year after next (s.2(1)(l) proviso), so the
+  first year's Form 11 and Form 8 are marked "check".
+- Companies' BEN-2: within 30 days of receiving a BEN-1 declaration, rule 5,
+  Companies (Significant Beneficial Owners) Rules, 2018.
 """
 
 from __future__ import annotations
 
 import calendar
+import re
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 from typing import Any
@@ -94,7 +116,12 @@ def _company_items(vault: Vault, c: dict[str, Any], today: date) -> list[DueItem
         "SELECT a.*, p.name FROM appointments a JOIN parties p ON p.id = a.party_id WHERE a.company_id = ?"
     )
     if c["entity_type"] == "llp":
-        return _llp_annual(c, today) + _appointments(c, appointments, llp=True)
+        return (
+            _llp_annual(c, today)
+            + _llp_incorporation(c)
+            + _appointments(c, appointments, llp=True)
+            + _llp_events(c, rows("SELECT * FROM events WHERE company_id = ?"))
+        )
 
     meetings = rows("SELECT * FROM meetings WHERE company_id = ? ORDER BY date")
     return (
@@ -320,7 +347,49 @@ def _events(c: dict[str, Any], rows: list[dict[str, Any]]) -> list[DueItem]:
                 _item(c, "INC-22", "Notice of change of registered office", when + timedelta(days=30),
                       f"changed {when:%d-%m-%Y} + 30 days", "s.12(4)", trigger)
             )
+        elif e["kind"] == "sbo_declaration":
+            items.append(
+                _item(c, "BEN-2", "Return of significant beneficial ownership (on a BEN-1 declaration)", when + timedelta(days=30),
+                      f"declaration received {when:%d-%m-%Y} + 30 days",
+                      "rule 5, Companies (Significant Beneficial Owners) Rules, 2018", trigger)
+            )
     return items
+
+
+# What each LLP event starts: (form, title, what happened, law, certainty). The clock is 30 days for all of them.
+LLP_EVENTS: dict[str, tuple[str, str, str, str, str]] = {
+    "registered_office_change": ("LLP FORM 15", "Notice of change of registered office", "changed", "LLP Act s.13(3); rule 17", "firm"),
+    "name_change": ("LLP FORM 5", "Notice of change of name", "name changed", "LLP Act s.16; rule 20(2)", "check"),
+    "llp_agreement_change": ("LLP FORM 3", "File the change in the LLP agreement", "agreement changed",
+                             "LLP Act s.23(2); rule 21(1)", "firm"),
+    "sbo_declaration": ("LLP BEN-2", "Return of significant beneficial ownership (on an LLP BEN-1 declaration)",
+                        "declaration received", "LLP (Significant Beneficial Owners) Rules, 2023", "check"),
+}
+
+
+def _llp_events(c: dict[str, Any], rows: list[dict[str, Any]]) -> list[DueItem]:
+    items = []
+    for e in rows:
+        if e["kind"] not in LLP_EVENTS:
+            continue
+        form, title, what, law, certainty = LLP_EVENTS[e["kind"]]
+        when = _d(e["date"])
+        items.append(
+            _item(c, form, title, when + timedelta(days=30), f"{what} {when:%d-%m-%Y} + 30 days", law, f"event:{e['id']}", certainty)
+        )
+    return items
+
+
+def _llp_incorporation(c: dict[str, Any]) -> list[DueItem]:
+    if not c["date_of_incorporation"]:
+        return []
+    incorporated = _d(c["date_of_incorporation"])
+    return [
+        _item(
+            c, "LLP FORM 3", "File the LLP agreement", incorporated + timedelta(days=30),
+            f"incorporated {incorporated:%d-%m-%Y} + 30 days", "LLP Act s.23(2); rule 21(1)", "form3:incorporation",
+        )
+    ]
 
 
 def _incorporation(c: dict[str, Any]) -> list[DueItem]:
@@ -376,18 +445,37 @@ def _annual(c: dict[str, Any], today: date) -> list[DueItem]:
 
 
 def _llp_annual(c: dict[str, Any], today: date) -> list[DueItem]:
+    """Form 11 and Form 8 for each financial year (1 April to 31 March, s.2(1)(l)) the LLP has had."""
+    incorporated = _d(c["date_of_incorporation"]) if c["date_of_incorporation"] else None
+    first_end = _llp_first_fy_end(incorporated) if incorporated else None
+    # Incorporated in the second half of a financial year (after 30 September), its first year may run on to the
+    # next 31 March but one (s.2(1)(l) proviso): the first 31 March may then have no Form 11 or Form 8 of its own.
+    may_run_on = incorporated is not None and not date(first_end.year - 1, 4, 1) <= incorporated <= date(first_end.year - 1, 9, 30)
     items = []
     for y in (today.year - 1, today.year, today.year + 1):
-        label = _fy_label(date(y, 3, 31))
+        fy_end = date(y, 3, 31)
+        if first_end and fy_end < first_end:
+            continue  # the LLP didn't exist yet
+        label = _fy_label(fy_end)
+        certainty, note = "firm", ""
+        if may_run_on and fy_end == first_end:
+            certainty = "check"
+            note = f"; its first financial year may instead end on 31-03-{y + 1} (incorporated after 30 September)"
         items.append(
             _item(c, "LLP FORM 11", f"Annual return for FY {label}", date(y, 5, 30),
-                  "within 60 days of the year end", "LLP rule 25", f"form11:{label}")
+                  f"within 60 days of the year end{note}", "LLP Act s.35(1); rule 25(1)", f"form11:{label}", certainty)
         )
         items.append(
             _item(c, "LLP FORM 8", f"Statement of account and solvency for FY {label}", date(y, 10, 30),
-                  "within 30 days from six months after the year end", "LLP rule 24", f"form8:{label}")
+                  f"within 30 days from six months after the year end{note}", "LLP Act s.34(3); rule 24(4)", f"form8:{label}",
+                  certainty)
         )
     return items
+
+
+def _llp_first_fy_end(incorporated: date) -> date:
+    """The first 31 March on or after incorporation: where the first financial year ends, unless it runs on."""
+    return date(incorporated.year, 3, 31) if incorporated <= date(incorporated.year, 3, 31) else date(incorporated.year + 1, 3, 31)
 
 
 def _director_kyc(vault: Vault, company_ids: list[int]) -> list[DueItem]:
@@ -432,12 +520,18 @@ def _attach_filings(vault: Vault, items: list[DueItem]) -> None:
 
 
 def form_family(form: str) -> str:
-    """AOC-4 XBRL / NBFC / CFS answer the same item as AOC-4; MGT-7A the same as MGT-7."""
-    code = form.upper()
+    """AOC-4 XBRL / NBFC / CFS answer the same item as AOC-4; MGT-7A the same as MGT-7. An LLP form is the same
+    however it was written: "Form 11", "FORM-11", "LLP Form No. 11" are all LLP FORM 11."""
+    code = " ".join(form.upper().split())
     if code.startswith("AOC-4"):
         return "AOC-4"
     if code in ("MGT-7", "MGT-7A"):
         return "MGT-7"
+    llp = re.fullmatch(r"(?:LLP[\s-]*)?FORM[\s-]*(?:NO\.?\s*)?(\d{1,2})", code) or re.fullmatch(r"LLP[\s-]*(\d{1,2})", code)
+    if llp:
+        return f"LLP FORM {int(llp.group(1))}"
+    if re.fullmatch(r"LLP[\s-]*BEN[\s-]*(\d)", code):
+        return f"LLP BEN-{code[-1]}"
     return code
 
 

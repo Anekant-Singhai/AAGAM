@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { aagam } from "../../api/aagam";
 import { THEMES, useDesk, type Theme } from "../../lib/theme";
+import { UpdatePill } from "../Updates";
 
 const ICONS: Record<Theme, ReactNode> = { system: <Palette size={16} />, light: <Sun size={16} />, night: <SunDim size={16} />, dark: <Moon size={16} />, banaras: <Sunrise size={16} /> };
 
@@ -26,6 +27,7 @@ export default function TopBar({ theme, setTheme }: { theme: Theme; setTheme: (t
         <kbd className="kbd">Ctrl K</kbd>
       </button>
       <div className="flex-1" />
+      <UpdatePill />
       <button className="btn btn-ghost py-1 text-text-secondary" onClick={() => desk.openUpload()} title="Add documents (or drop files anywhere)">
         <FilePlus2 size={15} /> <span className="hidden md:inline">Add documents</span>
       </button>

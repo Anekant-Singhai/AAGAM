@@ -21,3 +21,11 @@ frontend/dist/
 *.db
 *.db-wal
 *.db-shm
+
+# Claude Code's MCP config for a developer's own checkout: it names this computer's paths.
+/.mcp.json
+
+# Written in the program folder by the installer and the updater: this copy's record, downloads, backups, the
+# update key.
+/install.json
+/.update/

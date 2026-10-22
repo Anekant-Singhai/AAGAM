@@ -75,13 +75,16 @@ def page_image(path: Path, page_no: int) -> bytes:
     if suffix == ".pdf":
         import pypdfium2 as pdfium
 
-        pdf = pdfium.PdfDocument(path)
-        try:
-            page = pdf[page_no - 1]
-            image = page.render(scale=OCR_SCALE).to_pil()
-            page.close()
-        finally:
-            pdf.close()
+        from csdesk.documents.intake import PDFIUM
+
+        with PDFIUM:
+            pdf = pdfium.PdfDocument(path)
+            try:
+                page = pdf[page_no - 1]
+                image = page.render(scale=OCR_SCALE).to_pil()
+                page.close()
+            finally:
+                pdf.close()
     else:
         image = Image.open(path)
         image.thumbnail((9000, 9000))

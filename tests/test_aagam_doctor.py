@@ -21,7 +21,7 @@ def test_checks_cover_everything_and_say_how_to_fix(settings, tmp_path):
     checks = doctor.run_checks(_aagam(settings), claude_config=tmp_path / "claude_desktop_config.json")
 
     assert [c.key for c in checks] == [
-        "python", "data_folder", "database", "interface", "port", "ocr", "browser", "local_ai", "claude_desktop", "disk",
+        "python", "data_folder", "database", "interface", "port", "ocr", "browser", "local_ai", "claude_desktop", "disk", "updates",
     ]
     for c in checks:
         assert c.status in (doctor.OK, doctor.WARN, doctor.FAIL)

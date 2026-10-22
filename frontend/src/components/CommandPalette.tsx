@@ -2,8 +2,8 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  BookMarked, Briefcase, Building2, CalendarClock, Calculator, CornerDownLeft, FilePlus2, FileText, Files, Fingerprint, Home, Landmark,
-  LifeBuoy, Loader2, Moon, Palette, Plus, ScanSearch, Search, StickyNote, Sun, SunDim, Sunrise, Users,
+  BookMarked, Briefcase, Building2, CalendarClock, Calculator, CornerDownLeft, FilePlus2, FileText, Files, Fingerprint, FolderPlus, HeartPulse, Home, Landmark,
+  LifeBuoy, Loader2, Moon, Palette, Plus, RefreshCw, ScanSearch, Search, StickyNote, Sun, SunDim, Sunrise, Trash2, Users,
 } from "lucide-react";
 import clsx from "clsx";
 import { aagam } from "../api/aagam";
@@ -67,10 +67,10 @@ export default function CommandPalette({ open, onClose, setTheme }: { open: bool
 
     if (words) {
       out.push({ id: "search", group: "Search", icon: <Search size={15} />, label: <>Search every page for “{q.trim()}”</>, hint: "full text", run: go(`/search?q=${encodeURIComponent(q.trim())}`) });
-      if (data?.looks_like && data.query === term && ["cin", "gstin", "din"].includes(data.looks_like)) {
+      if (data?.looks_like && data.query === term && ["cin", "llpin", "gstin", "din"].includes(data.looks_like)) {
         const kind = data.looks_like;
         const key = term.replace(/\s/g, "").toUpperCase();
-        out.push({ id: "looks", group: "Search", icon: <Fingerprint size={15} />, label: <>That's a {kind.toUpperCase()}: open its dossier</>, hint: key, run: go(`/entities/${kind}/${encodeURIComponent(kind === "din" ? key.toLowerCase() : key)}`) });
+        out.push({ id: "looks", group: "Search", icon: <Fingerprint size={15} />, label: <>That's {kind === "llpin" ? "an" : "a"} {kind.toUpperCase()}: open its dossier</>, hint: key, run: go(`/entities/${kind}/${encodeURIComponent(kind === "din" ? key.toLowerCase() : key)}`) });
       }
     } else {
       recentlyOpened().slice(0, 5).forEach((r) =>
@@ -130,12 +130,16 @@ export default function CommandPalette({ open, onClose, setTheme }: { open: bool
       ["Notes", "/notes", <StickyNote size={15} />],
       ["Calculators", "/calculators", <Calculator size={15} />, "186 180 185 loans limits"],
       ["Due dates", "/due", <CalendarClock size={15} />, "compliance calendar"],
+      ["Trash", "/trash", <Trash2 size={15} />, "deleted bin recycle restore undelete"],
+      ["Updates & health", "/system", <HeartPulse size={15} />, "update upgrade version new health doctor check repair fix install uninstall remove"],
       ["Help: what AAGAM does", "/help", <LifeBuoy size={15} />, "features guide shortcuts"],
     ];
     pages.forEach(([label, to, icon, kw]) => matches(`${label} ${kw ?? ""}`) && out.push({ id: `go-${to}`, group: "Go to", icon, label, run: go(to) }));
     if (matches("new work create task agm board")) out.push({ id: "new-work", group: "Create", icon: <Plus size={15} />, label: "New work", hint: "a meeting, filing, appointment, audit…", run: go("/work?new=1") });
     if (matches("new note write")) out.push({ id: "new-note", group: "Create", icon: <Plus size={15} />, label: "New note", run: go("/notes?new=1") });
     if (matches("add documents upload files")) out.push({ id: "add-docs", group: "Create", icon: <FilePlus2 size={15} />, label: "Add documents", hint: "or drop files anywhere", run: () => { onClose(); desk.openUpload(); } });
+    if (matches("add a folder import folder directory bring in watch")) out.push({ id: "add-folder", group: "Create", icon: <FolderPlus size={15} />, label: "Add a folder", hint: "every file in it, read in the background", run: go("/library?add=folder") });
+    if (matches("check for updates update upgrade new version")) out.push({ id: "check-updates", group: "Create", icon: <RefreshCw size={15} />, label: "Check for updates", run: go("/system?check=1") });
     THEMES.forEach((t) =>
       matches(`theme ${t.label} ${t.hint}`) && out.push({ id: `theme-${t.key}`, group: "Theme", icon: THEME_ICON[t.key], label: `Theme: ${t.label}`, hint: t.hint, run: () => { setTheme(t.key); onClose(); } })
     );

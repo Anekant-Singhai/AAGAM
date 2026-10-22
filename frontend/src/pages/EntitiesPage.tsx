@@ -14,19 +14,20 @@ export const KIND_LABELS: Record<string, string> = {
   company: "Companies",
   din: "DINs",
   cin: "CINs",
+  llpin: "LLPINs",
   gstin: "GSTINs",
   frn: "Audit firms",
   membership_no: "Members",
   email: "Email",
 };
 const KIND_ONE: Record<string, string> = {
-  person: "Person", company: "Company", din: "DIN", cin: "CIN", gstin: "GSTIN", frn: "Audit firm (FRN)", membership_no: "Institute member", email: "Email",
+  person: "Person", company: "Company", din: "DIN", cin: "CIN", llpin: "LLPIN", gstin: "GSTIN", frn: "Audit firm (FRN)", membership_no: "Institute member", email: "Email",
 };
 export const kindOne = (kind: string) => KIND_ONE[kind] ?? kind;
 
 export function KindIcon({ kind, size = 15 }: { kind: string; size?: number }) {
   if (kind === "person") return <Users size={size} />;
-  if (kind === "company" || kind === "cin") return <Building2 size={size} />;
+  if (kind === "company" || kind === "cin" || kind === "llpin") return <Building2 size={size} />;
   if (kind === "email") return <Mail size={size} />;
   if (kind === "frn" || kind === "membership_no") return <ShieldCheck size={size} />;
   return <Fingerprint size={size} />;
@@ -39,7 +40,7 @@ export default function EntitiesPage() {
   const { data, isLoading } = useQuery({ queryKey: ["entities", kind, q], queryFn: () => aagam.entities(kind, q), placeholderData: (p) => p });
   const { data: all } = useQuery({ queryKey: ["entities", "counts"], queryFn: () => aagam.entities(undefined, ""), staleTime: 60_000 });
   const counts = all?.counts ?? {};
-  const mono = ["din", "cin", "gstin", "frn", "membership_no"].includes(kind);
+  const mono = ["din", "cin", "llpin", "gstin", "frn", "membership_no"].includes(kind);
   const [showHidden, setShowHidden] = useState(false);
   const { data: hidden } = useQuery({ queryKey: ["entities", "hidden"], queryFn: aagam.hidden });
 

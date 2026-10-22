@@ -13,15 +13,15 @@ in their own tables, and applied after every reading:
   and an automatic tag she took off a document isn't put back;
 - statements she deleted aren't read again.
 
-Deleting a document keeps the file itself in the bin folder, turns her notes on
-it into general notes, and leaves the company file's quotes in place (without
-the link).
+Deleting a document puts it in the Trash (trash.py): the file waits in the bin
+folder, her notes on it become general notes, the company file's quotes stay
+(without the link), and all she had added to it is kept, so restoring it puts
+it back as it was.
 """
 
 from __future__ import annotations
 
 import json
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -33,7 +33,7 @@ from . import entities
 
 # ---------------------------------------------------------------- documents
 
-DOC_OVERRIDES = ("company_name", "meeting_kind", "meeting_date")
+DOC_OVERRIDES = ("company_name", "meeting_kind", "meeting_date", "doc_date")
 MEETING_KINDS = ("agm", "egm", "board", "committee", "postal_ballot")
 
 
@@ -50,27 +50,38 @@ def _set_meta(vault: Vault, document_id: int, column: str, value: Any) -> None:
 
 
 def set_document_details(vault: Vault, document_id: int, details: dict[str, Any]) -> None:
-    """The company it is about, the meeting kind and date: hers from now on, whatever re-reading finds."""
+    """The company it is about, the meeting kind and date, the document's own date: hers from now on, whatever
+    re-reading finds."""
     unknown = set(details) - set(DOC_OVERRIDES)
     if unknown:
         raise Invalid(f"Unknown detail: {', '.join(sorted(unknown))}.")
     if details.get("meeting_kind") and details["meeting_kind"] not in MEETING_KINDS:
         raise Invalid(f"The meeting is one of: {', '.join(MEETING_KINDS)}.")
-    if details.get("meeting_date"):
-        try:
-            datetime.strptime(details["meeting_date"], "%Y-%m-%d")
-        except ValueError as exc:
-            raise Invalid("Give the meeting date as YYYY-MM-DD.") from exc
+    for key, what in (("meeting_date", "the meeting date"), ("doc_date", "the document's date")):
+        if details.get(key):
+            try:
+                datetime.strptime(details[key], "%Y-%m-%d")
+            except ValueError as exc:
+                raise Invalid(f"Give {what} as YYYY-MM-DD.") from exc
     current = json.loads(_meta(vault, document_id, "overrides") or "{}")
     current.update({k: (v.strip() if isinstance(v, str) else v) or None for k, v in details.items()})
     _set_meta(vault, document_id, "overrides", json.dumps(current))
     apply_document_overrides(vault, document_id)
+    if "doc_date" in details and not details["doc_date"]:
+        from . import library  # she cleared her date: work it out again
+
+        row = vault.conn.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if row is not None:
+            library.date_document(vault, row)
 
 
 def apply_document_overrides(vault: Vault, document_id: int) -> None:
     overrides = json.loads(_meta(vault, document_id, "overrides") or "{}")
     for key, value in overrides.items():
-        if key in DOC_OVERRIDES:
+        if key == "doc_date":
+            if value:  # her date wins; cleared, the next reading works it out again
+                vault.conn.execute("UPDATE doc_meta SET doc_date = ?, doc_date_basis = 'set by her' WHERE document_id = ?", (value, document_id))
+        elif key in DOC_OVERRIDES:
             vault.conn.execute(f"UPDATE doc_meta SET {key} = ? WHERE document_id = ?", (value, document_id))
     if "company_name" in overrides or "meeting_kind" in overrides or "meeting_date" in overrides:
         # The precedent library carries the company and meeting of each resolution; keep it in step.
@@ -98,36 +109,10 @@ def edit_page(vault: Vault, home: Path | None, document_id: int, page_no: int, t
 
 
 def delete_document(vault: Vault, home: Path, document_id: int) -> dict[str, Any]:
-    row = vault.conn.execute(
-        "SELECT d.id, d.original_name, d.stored_path, m.title FROM documents d LEFT JOIN doc_meta m ON m.document_id = d.id WHERE d.id = ?",
-        (document_id,),
-    ).fetchone()
-    if row is None:
-        raise NotFound(f"There is no document {document_id}.")
-    name = row["title"] or row["original_name"]
-    notes = _keep_notes(vault, "document", str(document_id), f"On the deleted document “{name}”")
-    # The company file's quotes stay; they just no longer point at a document.
-    sources = vault.conn.execute(
-        "UPDATE field_sources SET document_id = NULL, note = trim(coalesce(note, '') || ' (source document deleted: ' || ? || ')') WHERE document_id = ?",
-        (row["original_name"], document_id),
-    ).rowcount
-    # Rows whose search index is kept by triggers go first, so the index is cleaned too.
-    vault.conn.execute("DELETE FROM document_pages WHERE document_id = ?", (document_id,))
-    vault.conn.execute("DELETE FROM clauses WHERE document_id = ?", (document_id,))
-    vault.conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+    """Delete a document into the Trash, from where it can be put back as it was (trash.py)."""
+    from . import trash
 
-    kept = None
-    shared = vault.conn.execute("SELECT COUNT(*) FROM documents WHERE stored_path = ?", (row["stored_path"],)).fetchone()[0]
-    source = home / row["stored_path"]
-    if not shared and source.is_file():
-        bin_dir = home / "bin"
-        bin_dir.mkdir(parents=True, exist_ok=True)
-        target = bin_dir / f"{datetime.now():%Y-%m-%d %H%M} {row['original_name']}"
-        shutil.move(str(source), target)
-        kept = str(target.relative_to(home))
-    shutil.rmtree(home / "cache" / "pages" / str(document_id), ignore_errors=True)
-    vault.log("delete document", {"id": document_id, "name": row["original_name"], "file_kept_in": kept})
-    return {"deleted": document_id, "name": name, "file_kept_in": kept, "notes_kept": notes, "sources_unlinked": sources}
+    return trash.put_document(vault, home, document_id)
 
 
 def _keep_notes(vault: Vault, kind: str, target: str, prefix: str) -> int:

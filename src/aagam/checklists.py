@@ -134,6 +134,90 @@ KINDS: dict[str, dict[str, Any]] = {
             ("Draft MR-3 with observations; discuss with management; sign with UDIN", None),
         ],
     },
+    # LLPs: the Limited Liability Partnership Act, 2008 ("s.") and the LLP Rules, 2009 ("rule").
+    "llp_incorporation": {
+        "label": "LLP: Incorporation",
+        "steps": [
+            ("Reserve the name in RUN-LLP (or apply for it in FiLLiP); a reserved name holds for three months", "s.15; rule 18"),
+            ("At least two designated partners who are individuals, one of them resident in India", "s.7(1)"),
+            ("DIN for each designated partner (applied for in FiLLiP for those who have none)", "s.7(6)"),
+            ("Consent of every designated partner and partner, given in FiLLiP", "s.7(3)"),
+            ("File FiLLiP with the subscription sheet, proof of the registered office and the partners' details", "s.11; rule 11"),
+            ("Certificate of incorporation with the LLPIN (PAN and TAN come with it)", "s.12"),
+            ("Sign the LLP agreement on stamp paper and file it in Form 3 within 30 days of incorporation", "s.23(2); rule 21(1)"),
+            ("Partners bring in their contributions as the agreement says; open the bank account", "s.32"),
+            ("Keep books of account at the registered office from the start", "s.34(1); rule 24(1)"),
+        ],
+    },
+    "llp_annual_filing": {
+        "label": "LLP: Annual filings (Form 8 and Form 11)",
+        "steps": [
+            ("Books of account on cash or accrual basis, by double entry, kept at the registered office", "s.34(1); rule 24(1)"),
+            ("Statement of account and solvency within six months of the year end, signed by the designated partners", "s.34(2)"),
+            ("Audit by a chartered accountant, unless turnover hasn't exceeded ₹40 lakh and contribution hasn't exceeded ₹25 lakh "
+             "(confirm the proviso's reading with the auditor)", "rule 24(8)"),
+            ("Form 11 (annual return) by 30 May, within 60 days of the year end", "s.35(1); rule 25(1)"),
+            ("Form 11 certified by a company secretary in practice when contribution exceeds ₹50 lakh or turnover exceeds ₹5 crore", "rule 25(2)"),
+            ("Form 8 (statement of account and solvency) by 30 October, signed by the designated partners and certified by a "
+             "practising CA, CS or CMA", "s.34(3); rule 24(4)"),
+            ("Form 4 and Form 3 filed for every change in partners or in the agreement during the year", "s.25(2), s.23(2)"),
+            ("DIR-3 KYC for each designated partner when due (they hold DINs)", "rule 12A, Appointment and Qualification of Directors Rules"),
+            ("Review the significant beneficial owners: LLP BEN-2 within 30 days of a BEN-1 declaration", "LLP (Significant Beneficial Owners) Rules, 2023"),
+        ],
+    },
+    "llp_partner_change": {
+        "label": "LLP: Partner joining or leaving",
+        "steps": [
+            ("Partners' consent as the LLP agreement requires for admitting or letting go a partner", "s.23(1), s.24"),
+            ("Consent of the incoming partner or designated partner", "s.7(3)"),
+            ("DIN for an incoming designated partner, with its KYC up to date", "s.7(6)"),
+            ("Form 4 within 30 days of the change", "s.25(2); rule 22"),
+            ("Form 3 within 30 days if the agreement changes (contribution, profit share, admission)", "s.23(2); rule 21(1)"),
+            ("Still at least two partners and two designated partners, one resident in India", "s.6, s.7(1)"),
+            ("A partner leaving: settle their share and contribution as the agreement says", "s.24"),
+            ("Update the LLP's register of partners", None),
+        ],
+    },
+    "llp_agreement_change": {
+        "label": "LLP: Changing the LLP agreement",
+        "steps": [
+            ("Partners' consent as the agreement requires", "s.23(1)"),
+            ("Supplementary agreement on stamp paper (under the state's stamp law), signed by the partners", None),
+            ("Form 3 within 30 days of the change", "s.23(2); rule 21(1)"),
+            ("Form 4 too if partners join, leave or change designation", "s.25(2)"),
+            ("Update the books and the bank for any change in contributions", None),
+        ],
+    },
+    "llp_office_change": {
+        "label": "LLP: Changing the registered office",
+        "steps": [
+            ("Partners' consent as the agreement requires", "s.13(3)"),
+            ("Moving to another state: consent of any secured creditors first", "rule 17"),
+            ("Form 15 within 30 days of the change", "s.13(3); rule 17"),
+            ("Form 3 too if the agreement names the registered office", "s.23(2)"),
+            ("Update the letterhead, bank, GST and other registrations", None),
+        ],
+    },
+    "llp_name_change": {
+        "label": "LLP: Changing the name",
+        "steps": [
+            ("Reserve the new name in RUN-LLP", "s.15; rule 18"),
+            ("Partners' consent as the agreement requires", "s.16"),
+            ("Form 5 within 30 days", "s.16; rule 20(2)"),
+            ("Form 3 for the change in the agreement's name clause", "s.23(2)"),
+            ("New certificate of incorporation; update the PAN, bank, GST and letterhead", None),
+        ],
+    },
+    "llp_strike_off": {
+        "label": "LLP: Striking off (Form 24)",
+        "steps": [
+            ("Check it has carried on no business for at least a year (or never began) and has no liabilities", "s.75; rule 37"),
+            ("Form 8 and Form 11 filed up to the end of the year in which it stopped business", "rule 37"),
+            ("Consent of all partners; statement of account showing no assets or liabilities, certified by a CA", "rule 37"),
+            ("File Form 24 with the designated partners' affidavit and indemnity bond", "s.75; rule 37"),
+            ("Close the bank account and surrender GST and other registrations", None),
+        ],
+    },
     "other": {"label": "Other work", "steps": []},
 }
 

@@ -110,9 +110,9 @@ function AlsoFound({ data }: { data: Everything }) {
   return (
     <aside className="space-y-3 xl:sticky xl:top-0">
       <p className="label">Also in AAGAM</p>
-      {data.looks_like && ["cin", "gstin", "din"].includes(data.looks_like) && (
+      {data.looks_like && ["cin", "llpin", "gstin", "din"].includes(data.looks_like) && (
         <Link to={`/entities/${data.looks_like}/${encodeURIComponent(data.looks_like === "din" ? data.query.replace(/\s/g, "") : data.query.replace(/\s/g, "").toUpperCase())}`} className="card card-hover p-3 flex items-center gap-2 text-sm">
-          <Fingerprint size={14} className="text-accent-brand" /> That's a {data.looks_like.toUpperCase()}: open its dossier
+          <Fingerprint size={14} className="text-accent-brand" /> That's {data.looks_like === "llpin" ? "an" : "a"} {data.looks_like.toUpperCase()}: open its dossier
         </Link>
       )}
       {groups.map((g) => (

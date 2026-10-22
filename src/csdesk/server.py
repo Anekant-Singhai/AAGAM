@@ -192,7 +192,8 @@ def build_server(settings: Settings, name: str = "csdesk", instructions: str = I
     @tool()
     def save_event(fields: EventIn, source: SourceIn, record_id: int | None = None) -> dict[str, Any]:
         """Record an allotment (PAS-3), alteration of share capital (SH-7), change of registered office
-        (INC-22) or another event that starts a filing clock."""
+        (INC-22; for an LLP Form 15), a BEN-1 declaration received (BEN-2; LLP BEN-2), and for an LLP a change of
+        name (Form 5) or of its LLP agreement (Form 3), or another event that starts a filing clock."""
         return save("event", fields, source, record_id)
 
     @tool()

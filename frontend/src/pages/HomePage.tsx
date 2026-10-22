@@ -8,6 +8,7 @@ import { ago, day, daysTo, titleCase } from "../lib/format";
 import { recentlyOpened, useDesk, usePreference } from "../lib/theme";
 import { NoteItem } from "../components/NotesPanel";
 import { CountUp, PageSkeleton, Progress, Tabs } from "../components/ui";
+import { UpdateBanner } from "../components/Updates";
 
 function greeting(banaras: boolean): string {
   const h = new Date().getHours();
@@ -46,6 +47,8 @@ export default function HomePage() {
         <Link to="/work?new=1" className="btn"><Plus size={14} /> New work</Link>
         <button className="btn btn-primary" onClick={() => desk.openUpload()}><FilePlus2 size={14} /> Add documents</button>
       </div>
+
+      <UpdateBanner />
 
       {!welcomed && (
         <div className="card p-4 mb-5 flex items-center gap-4 pop-in border-accent-brand/30">

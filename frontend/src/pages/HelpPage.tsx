@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import {
-  BookMarked, Bot, Briefcase, Building2, CalendarClock, Calculator, ClipboardCheck, Command, FilePen, Files, Globe, Landmark, LifeBuoy, Lock, ScanSearch, Search,
-  ShieldCheck, Sparkles, StickyNote, Trash2, Users,
+  BookMarked, Bot, Briefcase, Building2, CalendarClock, Calculator, ClipboardCheck, Command, FilePen, Files, FolderOpen, Globe, HeartPulse, Landmark, LifeBuoy, Lock,
+  ScanSearch, Search, ShieldCheck, Sparkles, StickyNote, Trash2, Users,
 } from "lucide-react";
 import clsx from "clsx";
 import { GROUPS, POWER, SHORTCUTS, type Power } from "../lib/help";
@@ -11,7 +11,7 @@ export const HELP_ICONS: Record<string, React.ReactNode> = {
   note: <StickyNote size={18} />, briefcase: <Briefcase size={18} />, book: <BookMarked size={18} />, check: <ClipboardCheck size={18} />,
   calendar: <CalendarClock size={18} />, globe: <Globe size={18} />, landmark: <Landmark size={18} />, calculator: <Calculator size={18} />,
   bot: <Bot size={18} />, sparkles: <Sparkles size={18} />, building: <Building2 size={18} />, pen: <FilePen size={18} />, trash: <Trash2 size={18} />,
-  scan: <ScanSearch size={18} />,
+  scan: <ScanSearch size={18} />, folder: <FolderOpen size={18} />, heart: <HeartPulse size={18} />, life: <LifeBuoy size={18} />,
 };
 
 export function PowerBadge({ power }: { power: Power }) {

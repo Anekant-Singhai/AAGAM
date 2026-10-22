@@ -29,7 +29,14 @@ CREATE TABLE IF NOT EXISTS doc_meta (
     words INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'indexed', 'failed')),
     error TEXT,
-    indexed_at TEXT
+    indexed_at TEXT,
+    doc_date TEXT,                      -- the date the document is of: its meeting, its accounts, its "Date:" line, ...
+    doc_date_basis TEXT,                -- how that date was found, in words
+    source_path TEXT,                   -- where the file was on her computer, when known
+    source_folder TEXT,                 -- its folder within the folder brought in: "Acme/2024-25/AGM" ('' at the top)
+    folder_id INTEGER,                  -- folders.id it came from
+    file_modified TEXT,                 -- when the file itself last changed
+    client_why TEXT                     -- how its client was worked out: "its CIN ...", "the folder “Acme”", "set by her"
 );
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -245,6 +252,61 @@ CREATE TABLE IF NOT EXISTS analyses (
     result TEXT NOT NULL,                -- JSON: {kind, title, columns, items, score, summary, tags, highlights, facts}
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (document_id, kind)
+);
+
+-- Folders on her computer brought into the library, once or watched for new files. Her files stay where they
+-- are: each one is copied in and read like any other document. A pass over a folder runs in the background,
+-- file by file, and its progress is kept here.
+CREATE TABLE IF NOT EXISTS folders (
+    id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE COLLATE NOCASE,   -- as she chose it (Windows paths ignore case)
+    client_mode TEXT NOT NULL DEFAULT 'auto' CHECK (client_mode IN ('auto', 'one', 'none')),  -- worked out per file, all one client's, or no client's
+    company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,  -- the client, when client_mode is 'one'
+    doc_type TEXT,                              -- NULL: worked out per file
+    tags TEXT NOT NULL DEFAULT '[]',            -- JSON: put on every document from here
+    precedent INTEGER NOT NULL DEFAULT 0 CHECK (precedent IN (0, 1)),  -- other companies' documents: no client is worked out
+    watch INTEGER NOT NULL DEFAULT 0 CHECK (watch IN (0, 1)),          -- look again for new files while AAGAM is open
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'done', 'stopped', 'failed')),
+    found INTEGER NOT NULL DEFAULT 0,           -- files to read in this pass
+    done INTEGER NOT NULL DEFAULT 0,
+    added INTEGER NOT NULL DEFAULT 0,
+    already INTEGER NOT NULL DEFAULT 0,         -- the same file was already in the library
+    failed INTEGER NOT NULL DEFAULT 0,
+    skipped TEXT,                               -- JSON {".doc": 12}: files AAGAM can't read yet
+    current TEXT,                               -- the file being read now
+    error TEXT,
+    worker TEXT,                                -- who is reading it: "web:<pid>" or "mcp:<pid>"
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at TEXT,
+    heartbeat TEXT,                             -- touched after every file, so a pass left by a closed AAGAM is taken up again
+    finished_at TEXT
+);
+-- Every file seen in a folder, so the next pass reads only what is new or changed, and a document she deleted
+-- isn't brought back.
+CREATE TABLE IF NOT EXISTS folder_files (
+    folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    rel_path TEXT NOT NULL COLLATE NOCASE,
+    size INTEGER NOT NULL,
+    modified TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('added', 'already', 'failed')),
+    document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+    error TEXT,
+    seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (folder_id, rel_path)
+);
+
+-- The Trash: documents she deleted, each with what it takes to put it back as it was (trash.py).
+CREATE TABLE IF NOT EXISTS trash (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL DEFAULT 'document',
+    item_id INTEGER NOT NULL,                   -- its id before it was deleted
+    name TEXT NOT NULL,
+    detail TEXT,                                -- what the Trash lists it with: type, pages, client
+    file TEXT,                                  -- the file, in the bin folder (relative to AAGAM_HOME)
+    size INTEGER,
+    payload TEXT NOT NULL,                      -- JSON: the rows to put back
+    deleted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_by TEXT
 );
 
 CREATE INDEX IF NOT EXISTS mentions_document ON mentions(document_id, page_no);

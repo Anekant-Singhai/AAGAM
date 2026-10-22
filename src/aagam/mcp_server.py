@@ -7,6 +7,8 @@ also indexes each document (type, facts, resolutions, tags).
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any, Literal
 
 from mcp.server.mcpserver import MCPServer
@@ -15,11 +17,28 @@ from csdesk.documents.intake import DOC_TYPES
 from csdesk.server import INSTRUCTIONS as CORE_INSTRUCTIONS
 from csdesk.server import build_server, tool_registrar
 
-from . import ai, analysis, checks, entities, everything, finance, library, precedents, review, workbook
+from . import (
+    ai,
+    analysis,
+    checklists,
+    checks,
+    entities,
+    everything,
+    finance,
+    folders,
+    library,
+    precedents,
+    review,
+    workbook,
+)
 from .config import AagamSettings
 from .db import open_db
 
 DocType = Literal[tuple(DOC_TYPES)]  # type: ignore[valid-type]
+FileKind = Literal[tuple(library.FILE_KINDS)]  # type: ignore[valid-type]
+FOLDER_SECONDS = 40  # how long ingest_folder reads before handing the rest to the background
+EntityKind = Literal[tuple(entities.KINDS)]  # type: ignore[valid-type]
+WorkKind = Literal[tuple(checklists.KINDS)]  # type: ignore[valid-type]
 
 INSTRUCTIONS = (
     CORE_INSTRUCTIONS
@@ -27,6 +46,8 @@ INSTRUCTIONS = (
 AAGAM adds a document library and a precedent library on top of the company file:
 - ingest_document / ingest_inbox bring documents in and index them: type, facts (CIN, DIN with the person,
   amounts, dates, sections), tags, and for notices each resolution with its explanatory statement.
+- ingest_folder brings in a whole folder with the folders inside it, each document filed under the client its
+  CIN, LLPIN, folder name or company name points to; folder_status follows a large one as it is read.
 - library_search finds words across every page; library_document shows what is known about one document.
   Read the pages themselves with read_document before relying on a fact.
 - precedent_search finds resolutions from notices on file by section, topic, kind, amount and words. Use it
@@ -43,6 +64,9 @@ AAGAM adds a document library and a precedent library on top of the company file
 - document_analysis gives what AAGAM's rules read in a document for six purposes (investments, legal matters,
   law cited, amendments, obligations, agreement terms); insights gives one purpose across the library. Both are
   rule-based readings with a confidence each: confirm anything important against the page before relying on it.
+- LLPs are on the same footing: an LLPIN (AAB-1234) identifies one (entity_dossier with kind "llpin"); its due dates
+  are Form 11 (30 May), Form 8 (30 October), Form 3 (the LLP agreement, within 30 days of incorporation or a change),
+  Form 4 (partners, 30 days), Form 15 (registered office), Form 5 (name) and LLP BEN-2; work_create has LLP jobs.
 """
 )
 
@@ -80,11 +104,14 @@ def build(settings: AagamSettings) -> MCPServer:
         note: str | None = None,
     ) -> dict[str, Any]:
         """Bring a file on this computer into the library (PDF, Word, Excel, email, web page, image or text) and
-        index it. The original is copied, not moved. Leave doc_type empty to work it out from the text. Tag
-        listed companies' notices "precedent" so their resolutions are easy to find as precedents."""
+        index it. The original is copied, not moved. Leave doc_type empty to work it out from the text, and company
+        empty to file it under the client its CIN, LLPIN or company name points to. Tag listed companies' notices
+        "precedent" so their resolutions are easy to find as precedents."""
+        origin = library.Origin.of_file(path) if Path(path).expanduser().is_file() else None
         with db() as vault:
             company_id = vault.resolve_company(company) if company else None
-            return library.add_document(vault, core, path, company_id, doc_type, tags, note)
+            return library.add_document(vault, core, path, company_id, doc_type, tags, note, origin=origin,
+                                        work_out_client=company is None)
 
     @tool(description=f"Bring in every file in the inbox folder ({core.inbox_dir}) and index it, then move each to inbox/processed/<date>.")
     def ingest_inbox(company: str | None = None, tags: list[str] | None = None) -> dict[str, Any]:
@@ -112,11 +139,26 @@ def build(settings: AagamSettings) -> MCPServer:
             return library.search(vault, query, company_id, doc_type, tag, limit)
 
     @tool()
-    def library_list(company: str | None = None, doc_type: DocType | None = None, tag: str | None = None, limit: int = 30) -> dict[str, Any]:
-        """Documents in the library, newest first, with type, tags and whether they have a summary."""
+    def library_list(
+        company: str | None = None,
+        doc_type: DocType | None = None,
+        tag: str | None = None,
+        limit: int = 30,
+        fy: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        folder_id: int | None = None,
+        kind: FileKind | None = None,
+        sort: Literal["added", "newest", "oldest", "name"] = "added",
+    ) -> dict[str, Any]:
+        """Documents in the library, last added first (or by their own date: newest, oldest; or by name), with type,
+        date, tags and whether they have a summary. Narrow by client, type, tag, financial year ("2024-25"), dates
+        (YYYY-MM-DD, by the document's own date), the folder they came from (ids from folder_status) or kind of file."""
+        more = {k: v for k, v in {"fy": fy, "date_from": date_from, "date_to": date_to, "folder_id": folder_id, "kind": kind}.items()
+                if v is not None}
         with db() as vault:
             company_id = vault.resolve_company(company) if company else None
-            return library.list_documents(vault, company_id, doc_type, tag, limit)
+            return library.list_documents(vault, company_id, doc_type, tag, limit, sort=sort, **more)
 
     @tool()
     def library_document(document_id: int) -> dict[str, Any]:
@@ -218,15 +260,14 @@ def build(settings: AagamSettings) -> MCPServer:
             return everything.search_all(vault, query)
 
     @tool()
-    def entity_list(kind: Literal["person", "company", "din", "cin", "gstin", "frn", "membership_no", "email"] | None = None,
-                    query: str = "", limit: int = 50) -> dict[str, Any]:
+    def entity_list(kind: EntityKind | None = None, query: str = "", limit: int = 50) -> dict[str, Any]:
         """People, companies and identifiers found across all documents, grouped however they were spelt, with how many
         documents mention each. Use the kind and key from here with entity_dossier."""
         with db() as vault:
             return entities.browse(vault, kind, query, limit)
 
     @tool()
-    def entity_dossier(kind: Literal["person", "company", "din", "cin", "gstin", "frn", "membership_no", "email"], name: str) -> dict[str, Any]:
+    def entity_dossier(kind: EntityKind, name: str) -> dict[str, Any]:
         """Everything on one person, company or identifier: every document it appears in (pages and context), the
         company-file records it matches, its identifiers, who and what it appears with, and for a company its
         resolutions and financial statements. `name` can be written any way; it is matched by its key."""
@@ -294,20 +335,21 @@ def build(settings: AagamSettings) -> MCPServer:
     @tool()
     def work_list(status: Literal["open", "waiting", "done", "dropped"] | None = None, company: str | None = None, query: str = "") -> dict[str, Any]:
         """Her work register: every job (AGM, board meeting, director appointment, allotment, charge, annual filing,
-        due diligence, secretarial audit...), open ones first, with checklist progress."""
+        due diligence, secretarial audit, LLP jobs...), open ones first, with checklist progress."""
         with db() as vault:
             return {"works": workbook.list_works(vault, status, vault.resolve_company(company) if company else None, query)}
 
     @tool()
     def work_create(
         title: str,
-        kind: Literal["board_meeting", "agm", "egm", "annual_filing", "director_appointment", "allotment", "charge",
-                      "due_diligence", "secretarial_audit", "other"],
+        kind: WorkKind,
         company: str | None = None,
         due_on: str | None = None,
         meeting_date: str | None = None,
     ) -> dict[str, Any]:
-        """Open a piece of work with the standard checklist for its kind (each step with its legal basis)."""
+        """Open a piece of work with the standard checklist for its kind (each step with its legal basis). LLP jobs:
+        llp_incorporation, llp_annual_filing (Form 8 and Form 11), llp_partner_change (Form 4), llp_agreement_change
+        (Form 3), llp_office_change (Form 15), llp_name_change (Form 5), llp_strike_off (Form 24)."""
         with db() as vault:
             return workbook.create_work(vault, title, kind, vault.resolve_company(company) if company else None, due_on, meeting_date)
 
@@ -378,5 +420,32 @@ def build(settings: AagamSettings) -> MCPServer:
         with db() as vault:
             status["queued"] = vault.conn.execute("SELECT COUNT(*) FROM ai_jobs WHERE status = 'queued'").fetchone()[0]
         return status
+
+    @tool()
+    def ingest_folder(
+        path: str, company: str | None = None, tags: list[str] | None = None, precedent: bool = False, watch: bool = False
+    ) -> dict[str, Any]:
+        """Bring a whole folder on this computer into the library: every file AAGAM can read in it and in the folders
+        inside it is copied in (her files stay where they are) and read like ingest_document. Each document is filed
+        under the client its CIN, LLPIN, folder name or company name points to, unless `company` is given.
+        `precedent`: other companies' documents, for the precedent library (no client). `watch`: new files are
+        brought in while the AAGAM window is open. A large folder is read for about 40 seconds now and the rest in
+        the background (or by calling this again); follow it with folder_status."""
+        with db() as vault:
+            company_id = vault.resolve_company(company) if company else None
+            folder = folders.add_folder(vault, core.home, path, "one" if company_id else "auto", company_id, None, tags or [],
+                                        precedent, watch)
+        folders.run_queue(core, f"mcp:{os.getpid()}", folder_id=folder["id"], budget=FOLDER_SECONDS)
+        with db() as vault:
+            return folders.get(vault, folder["id"], details=True)
+
+    @tool()
+    def folder_status(folder_id: int | None = None) -> dict[str, Any]:
+        """The folders brought into the library, with how far each has been read (found, done, added, already in
+        the library, failed) and what was left out; with folder_id, that one with the files that couldn't be read."""
+        with db() as vault:
+            if folder_id is not None:
+                return folders.get(vault, folder_id, details=True)
+            return {"folders": folders.listing(vault)}
 
     return server

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-from .config import AagamSettings, claude_desktop_config_path
+from .config import AagamSettings, claude_config_in_use, claude_store_config_paths
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 GB = 1024**3
@@ -45,8 +45,9 @@ def run_checks(settings: AagamSettings, claude_config: Path | None = None) -> li
         ("ocr", check_ocr),
         ("browser", lambda: check_browser(settings)),
         ("local_ai", lambda: check_local_ai(settings)),
-        ("claude_desktop", lambda: check_claude_desktop(settings, claude_config or claude_desktop_config_path())),
+        ("claude_desktop", lambda: check_claude_desktop(settings, claude_config or claude_config_in_use())),
         ("disk", lambda: check_disk_space(settings)),
+        ("updates", check_updates),
     ]
     results = []
     for key, step in steps:
@@ -93,14 +94,14 @@ def check_python() -> Check:
     version = ".".join(map(str, sys.version_info[:3]))
     if sys.version_info >= (3, 11):  # noqa: UP036 - deliberate: says so plainly if an old Python runs this
         return Check("python", "Python", OK, f"{version} ({sys.executable})")
-    return Check("python", "Python", FAIL, f"{version} is too old", "Install Python 3.11 or newer from python.org, then run setup-windows.cmd again.")
+    return Check("python", "Python", FAIL, f"{version} is too old", "Open the AAGAM Manager and choose 5 (Repair). It installs Python if it is missing.")
 
 
 def check_data_folder(settings: AagamSettings) -> Check:
     home = Path(settings.core.home)
     label = "Data folder"
     if not home.is_dir():
-        return Check("data_folder", label, FAIL, f"{home} doesn't exist yet", "Run `aagam init` to create it (or set AAGAM_HOME to the right folder).")
+        return Check("data_folder", label, FAIL, f"{home} doesn't exist yet", "Open the AAGAM Manager and choose 5 (Repair), or run `aagam init`.")
     try:
         handle, probe = tempfile.mkstemp(dir=home, prefix=".aagam-doctor-")
         os.close(handle)
@@ -128,7 +129,7 @@ def check_database(settings: AagamSettings) -> Check:
         return Check("database", label, FAIL, f"{path.name} won't open ({exc})", "Close other programs using it; if it's damaged, restore csdesk.db from a backup.")
     version = row[0] if row else "?"
     if version != SCHEMA_VERSION:
-        return Check("database", label, FAIL, f"AAGAM tables at version {version}, expected {SCHEMA_VERSION}", "Reinstall AAGAM (setup-windows.cmd); the update brings the tables up to date.")
+        return Check("database", label, FAIL, f"AAGAM tables at version {version}, expected {SCHEMA_VERSION}", "Open the AAGAM Manager and choose 5 (Repair). Your documents and records are kept.")
     return Check("database", label, OK, f"{path} opens; AAGAM tables at version {version}")
 
 
@@ -139,7 +140,7 @@ def check_interface() -> Check:
     if index.is_file() and scripts:
         return Check("interface", "Interface", OK, f"built ({len(scripts)} script file(s) in {static})")
     missing = "index.html" if not index.is_file() else "assets/*.js"
-    return Check("interface", "Interface", FAIL, f"not built ({missing} missing in {static})", "Developers: run `aagam build-ui` (needs Node.js). Otherwise reinstall AAGAM from a copy that includes it.")
+    return Check("interface", "Interface", FAIL, f"not built ({missing} missing in {static})", "Open the AAGAM Manager and choose 5 (Repair). Developers: run `aagam build-ui` (needs Node.js).")
 
 
 def check_port(settings: AagamSettings) -> Check:
@@ -171,7 +172,7 @@ def check_ocr() -> Check:
     try:
         import winrt.windows.media.ocr  # noqa: F401
     except ImportError:
-        return Check("ocr", label, WARN, "the OCR packages aren't installed", "Run setup-windows.cmd again (it installs them).")
+        return Check("ocr", label, WARN, "the OCR packages aren't installed", "Open the AAGAM Manager and choose 5 (Repair).")
     return Check("ocr", label, WARN, "no OCR language installed: scanned pages won't be read", "Settings > Time & language > Language & region: add English (India) with its optical character recognition feature.")
 
 
@@ -198,16 +199,21 @@ def check_local_ai(settings: AagamSettings) -> Check:
     local = LocalAI.from_settings(settings)
     status = local.status()
     if not status.get("running"):
-        return Check("local_ai", label, WARN, f"Ollama isn't answering at {local.url}: no AI summaries until it is", "Install Ollama from ollama.com and start it (everything else works without it).")
+        return Check("local_ai", label, WARN, f"Ollama isn't answering at {local.url}: no AI summaries until it is", "Open the AAGAM Manager and choose 6 (Install or repair the local AI). Everything else works without it.")
     if not status.get("model_installed"):
-        return Check("local_ai", label, WARN, f"Ollama is running but {local.model} isn't installed", f"Run: ollama pull {local.model}  (or setup-windows.cmd -LocalAI)")
+        return Check("local_ai", label, WARN, f"Ollama is running but {local.model} isn't installed", f"Open the AAGAM Manager and choose 6 (Install or repair the local AI). Or run: ollama pull {local.model}")
     return Check("local_ai", label, OK, f"Ollama at {local.url} with {local.model}")
 
 
 def check_claude_desktop(settings: AagamSettings, path: Path) -> Check:
+    """Is AAGAM in the config Claude Desktop reads? (The Microsoft Store build reads its own copy: config.py.)"""
     label = "Claude Desktop (optional)"
-    fix = "Run `aagam claude-config --write` (or setup-windows.cmd -ConfigureClaude), then restart Claude Desktop."
+    fix = "Choose Connect Claude Desktop in the AAGAM Manager (or run `aagam claude-config --write`), then restart Claude Desktop."
     if not path.is_file():
+        installed = bool(claude_store_config_paths()) or path.parent.is_dir()
+        if not installed:
+            return Check("claude_desktop", label, WARN, "Claude Desktop isn't installed",
+                         "Install it from claude.ai/download and sign in, then choose Connect Claude Desktop in the AAGAM Manager.")
         return Check("claude_desktop", label, WARN, f"no config at {path}", fix)
     try:
         text = path.read_text(encoding="utf-8")
@@ -238,3 +244,26 @@ def check_disk_space(settings: AagamSettings) -> Check:
     if free < 2 * GB:
         return Check("disk", label, WARN, detail, "Space is getting low; free some before bringing in more documents.")
     return Check("disk", label, OK, detail)
+
+
+def check_updates() -> Check:
+    """Can this copy get a new version from GitHub by itself? A developer's checkout updates with git instead."""
+    from . import updates
+
+    label = "Updates"
+    app = updates.app_folder()
+    how = updates.mode(app)
+    if how == "archive":
+        record = updates.read_record(app)
+        repo = record.get("repo") or updates.DEFAULT_REPO
+        if record.get("auto_update", True):
+            detail = f"from github.com/{repo}. A new version installs itself when AAGAM is idle, and at 8:00 when it is closed."
+        else:
+            detail = f"from github.com/{repo}. Automatic updates are off; Updates & health can turn them on."
+        return Check("updates", label, OK, detail)
+    if how == "git":
+        return Check("updates", label, OK, "a developer's copy: it updates with git, not by itself")
+    return Check(
+        "updates", label, WARN, "this copy does not update itself",
+        "Install AAGAM with install.cmd (double-click it). After that, new versions arrive from GitHub.",
+    )

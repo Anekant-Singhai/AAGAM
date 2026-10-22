@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 
-from .extract import CIN, COMPANY, MARKET_BODIES, company_name
+from .extract import CIN, COMPANY, DATE_PATTERNS, LLPIN, MARKET_BODIES, company_name, parse_date
 
 Rule = tuple[str, list[re.Pattern[str]], list[re.Pattern[str]]]  # (type, all of, none of)
 
@@ -20,17 +21,41 @@ def _r(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern, re.IGNORECASE | re.MULTILINE)
 
 
+LLP_WORDS = _r(r"limited\s+liability\s+partnership|\bLLP\b")
+PARTNERS_MEETING = _r(
+    r"meeting\s+of\s+the\s+(?:designated\s+)?partners|(?:passed|approved)\s+by\s+(?:all\s+)?the\s+(?:designated\s+)?partners"
+    r"|partners'?\s+resolution"
+)
+# What may follow "... Agreement" in a heading: the end of the line, "of XYZ LLP", "is made", "dated", "(the Agreement)".
+AGREEMENT_HEADING_END = r"(?=[ \t]*$|[ \t]+(?:of|is|was|made|dated|between|executed|entered|to|for)\b|[ \t]*\()"
+
 # Order matters: the first rule whose patterns all match wins.
 RULES: list[Rule] = [
     ("mca_challan", [_r(r"\bchallan\b"), _r(r"\bSRN\b")], []),
-    ("mca_form", [_r(r"\bform\s+(?:no\.?\s*)?(?:DIR|MGT|AOC|ADT|PAS|SH|CHG|INC|DPT|MSME|BEN|CRA|LLP|MBP|GNL|CSR)[-\s]?\d+[A-Z]?\b"),
+    ("mca_form", [_r(r"\bform\s+(?:no\.?\s*)?(?:LLP\s+)?(?:DIR|MGT|AOC|ADT|PAS|SH|CHG|INC|DPT|MSME|BEN|CRA|LLP|MBP|GNL|CSR|STK|NDH|IEPF|"
+                     r"FC|URC|MR|CG|RD|NFRA)[-\s]?\d+[A-Z]?\b"),
                   _r(r"\[?pursuant\s+to\s+(?:section|rule)")], []),
+    # LLP forms are numbered without a prefix ("FORM 11 [Pursuant to section 35 of the Limited Liability Partnership Act...]").
+    # The \b after the number keeps out income-tax forms such as Form 3CD.
+    ("mca_form", [_r(r"\bform\s*(?:no\.?\s*)?(?:LLP[-\s]*)?(?:3|4|5|8|11|15|17|18|24|27|28|31)\b"), LLP_WORDS,
+                  _r(r"\[?pursuant\s+to\s+(?:section|rule)")], []),
+    ("mca_form", [_r(r"\bFiLLiP\b|form\s+for\s+incorporation\s+of\s+limited\s+liability\s+partnership|\bRUN[-\s]?LLP\b"), LLP_WORDS], []),
+    # An LLP agreement names itself in a heading line ("LIMITED LIABILITY PARTNERSHIP AGREEMENT", "THIS LLP AGREEMENT is
+    # made..."); minutes or letters that mention "the LLP Agreement, ..." in passing don't count. It comes before the
+    # certificate of incorporation and consents, which its recitals often mention.
+    ("llp_agreement", [_r(r"^[ \t]*(?:this\s+)?(?:supplementary\s+)?(?:limited\s+liability\s+partnership|LLP)\s+(?:\w+\s+)?agreement\b"
+                          + AGREEMENT_HEADING_END)],
+     [_r(r"notice\s+is\s+hereby\s+given")]),
+    ("llp_agreement", [_r(r"^[ \t]*(?:this\s+)?supplementary\s+(?:limited\s+liability\s+partnership\s+|LLP\s+)?(?:agreement|deed)\b"
+                          + AGREEMENT_HEADING_END), LLP_WORDS], []),
+    ("partner_consent", [_r(r"\bconsent\s+to\s+(?:act|be(?:come)?)\s+(?:as\s+)?(?:an?\s+)?(?:designated\s+)?partner\b")], []),
     ("consent_dir2", [_r(r"\bDIR[-\s]?2\b"), _r(r"\bconsent\b")], []),
     ("declaration_dir8", [_r(r"\bDIR[-\s]?8\b")], []),
     ("disclosure_mbp1", [_r(r"\bMBP[-\s]?1\b")], []),
     ("certificate_of_incorporation", [_r(r"certificate\s+of\s+incorporation")], [_r(r"memorandum\s+of\s+association")]),
     ("moa", [_r(r"memorandum\s+of\s+association")], []),
     ("aoa", [_r(r"articles\s+of\s+association")], [_r(r"notice\s+is\s+hereby\s+given")]),
+    ("partners_resolution", [_r(r"certified\s+(?:true\s+)?copy\s+of\s+(?:the\s+)?resolutions?"), PARTNERS_MEETING], []),
     ("board_resolution", [_r(r"certified\s+(?:true\s+)?copy\s+of\s+(?:the\s+)?resolutions?")], []),
     ("minutes", [_r(r"\bminutes\s+of\s+(?:the\s+)?(?:\w+\s+){0,5}meeting")], []),
     ("annual_report", [_r(r"\bannual\s+report\b"), _r(r"board'?s\s+report|directors'?\s+report"),
@@ -82,6 +107,7 @@ def detect(pages: list[tuple[int, str]], filename: str = "") -> Detected:
             break
 
     cin = CIN.search(head)
+    llpin = None if cin else LLPIN.search(head)
     company = _company(head)
 
     meeting_kind = meeting_date = None
@@ -89,8 +115,6 @@ def detect(pages: list[tuple[int, str]], filename: str = "") -> Detected:
     if meeting and doc_type in ("notice", "minutes", None):
         word = (meeting.group(2) or meeting.group(3) or "").lower()
         meeting_kind = "agm" if word == "annual" else "board" if word == "board" else "egm"
-        from .extract import DATE_PATTERNS, parse_date
-
         # "will be held on Monday, 21st August, 2023" or "will be held through ... on Monday, September 30th 2024".
         # The first "held" may be in a cover letter with a garbled date, so try each in turn.
         for held in HELD_ON.finditer(head, meeting.end()):
@@ -104,7 +128,70 @@ def detect(pages: list[tuple[int, str]], filename: str = "") -> Detected:
                 meeting_date = min(hits)[1].isoformat()
                 break
 
-    return Detected(doc_type, why, company, cin.group(0) if cin else None, meeting_kind, meeting_date, _title(head, filename))
+    company_cin = cin.group(0) if cin else llpin.group(1) if llpin else None
+    return Detected(doc_type, why, company, company_cin, meeting_kind, meeting_date, _title(head, filename))
+
+
+# ------------------------------------------------------------------ its date
+
+# A line that gives the document's own date: "Date: 15.04.2024", "Dated this 5th day of June, 2024", "Place & Date: ...".
+DATE_LABEL = _r(
+    r"^\s*(?:date[d]?(?:\s+this)?|dt\.?|place\s*(?:and|&)\s*date|service\s+request\s+date|"
+    r"date\s+of\s+(?:filing|issue|signing|execution|order|letter|agreement|payment|submission|report))\s*[:\-–.]?\s*"
+)
+ACCOUNTS_AT = _r(r"\b(?:as\s+(?:at|on)|for\s+the\s+(?:year|period|half[\s-]?year|quarter)\s+ended(?:\s+on)?)\s+")
+ACCOUNTS = ("financial_statements", "annual_report", "auditor_report", "board_report")
+
+
+def dated(pages: list[tuple[int, str]], detected: Detected, doc_type: str | None) -> tuple[str | None, str | None]:
+    """The date a document is of, and how it was found: its meeting, its accounts' date, a "Date:" line on its first
+    or last page, or else the first date on its first page. (None, None) when its words give none."""
+    if detected.meeting_date:
+        return detected.meeting_date, "the meeting date"
+    if not pages:
+        return None, None
+    if doc_type in ACCOUNTS:
+        found = _date_after(ACCOUNTS_AT, "\n".join(text for _, text in pages[:3]))
+        if found:
+            return found[0], f"the accounts' date, “{found[1]}”"
+    for _, text in (pages[0], pages[-1]) if len(pages) > 1 else (pages[0],):
+        found = _date_after(DATE_LABEL, text)
+        if found:
+            return found[0], f"“{found[1]}”"
+    found = _first_date(pages[0][1])
+    if found:
+        return found[0], f"the first date on page 1, “{found[1]}”"
+    return None, None
+
+
+def _plausible(day: date) -> bool:
+    return 1950 <= day.year <= date.today().year + 2
+
+
+def _date_after(label: re.Pattern[str], text: str) -> tuple[str, str] | None:
+    """The first plausible date that directly follows the label."""
+    for m in label.finditer(text):
+        for index, pattern in enumerate(DATE_PATTERNS):
+            when = pattern.match(text, m.end())
+            if when:
+                day = parse_date(when.groups(), index)
+                if day and _plausible(day):
+                    return day.isoformat(), " ".join(text[m.start() : when.end()].split())
+    return None
+
+
+def _first_date(text: str) -> tuple[str, str] | None:
+    hits = []
+    for index, pattern in enumerate(DATE_PATTERNS):
+        for when in pattern.finditer(text):
+            day = parse_date(when.groups(), index)
+            if day and _plausible(day):
+                hits.append((when.start(), day, " ".join(when.group(0).split())))
+                break  # the first of each pattern is enough
+    if not hits:
+        return None
+    _, day, shown = min(hits)
+    return day.isoformat(), shown
 
 
 MEMBERS_OF = re.compile(r"(?i)(?:members|shareholders)\s+of\s+(?:the\s+company\s*,?\s*)?")

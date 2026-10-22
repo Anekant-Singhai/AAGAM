@@ -41,3 +41,27 @@ def load() -> AagamSettings:
 def claude_desktop_config_path() -> Path:
     """Where Claude Desktop keeps its config on Windows (%APPDATA%\\Claude)."""
     return Path(os.environ.get("APPDATA", Path.home()), "Claude", "claude_desktop_config.json")
+
+
+def claude_store_config_paths() -> list[Path]:
+    """The config of each Microsoft Store (MSIX) build of Claude Desktop installed. That build reads its own copy, under
+    %LOCALAPPDATA%\\Packages\\Claude_<id>\\LocalCache\\Roaming\\Claude, not the one in %APPDATA%."""
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
+        return []
+    packages = Path(local, "Packages")
+    try:
+        found = sorted(p for p in packages.glob("Claude_*") if p.is_dir())
+    except OSError:
+        return []
+    return [p / "LocalCache" / "Roaming" / "Claude" / "claude_desktop_config.json" for p in found]
+
+
+def claude_desktop_config_paths() -> list[Path]:
+    """Every config Claude Desktop may read: the Store build's, then the usual one in %APPDATA%\\Claude."""
+    return [*claude_store_config_paths(), claude_desktop_config_path()]
+
+
+def claude_config_in_use() -> Path:
+    """The config Claude Desktop reads: the Store build's when that build is installed, else %APPDATA%\\Claude's."""
+    return next(iter(claude_store_config_paths()), claude_desktop_config_path())

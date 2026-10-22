@@ -1,13 +1,16 @@
 import { NavLink } from "react-router-dom";
 import {
-  BookMarked, Briefcase, Building2, CalendarClock, Calculator, ChevronsLeft, ChevronsRight, Files, Home, Landmark, LifeBuoy, ScanSearch, Search, StickyNote, Users,
+  BookMarked, Briefcase, Building2, CalendarClock, Calculator, ChevronsLeft, ChevronsRight, Files, HeartPulse, Home, Landmark, LifeBuoy, ScanSearch, Search,
+  StickyNote, Trash2, Users,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { aagam } from "../../api/aagam";
+import { missing } from "../../api/client";
 import { usePreference } from "../../lib/theme";
+import { useSystem } from "../Updates";
 
-type Link = { to: string; icon: typeof Home; label: string; end?: boolean; badge?: "work" | "due" };
+type Link = { to: string; icon: typeof Home; label: string; end?: boolean; badge?: "work" | "due" | "trash" };
 const NAV: { heading: string; links: Link[] }[] = [
   {
     heading: "Desk",
@@ -26,6 +29,7 @@ const NAV: { heading: string; links: Link[] }[] = [
       { to: "/search", icon: Search, label: "Search" },
       { to: "/precedents", icon: BookMarked, label: "Precedents" },
       { to: "/entities", icon: Users, label: "People & companies" },
+      { to: "/trash", icon: Trash2, label: "Trash", badge: "trash" },
     ],
   },
   {
@@ -53,9 +57,14 @@ export function Mark({ size = 28 }: { size?: number }) {
 export default function Sidebar() {
   const [small, setSmall] = usePreference("aagam.sidebar.small", false);
   const { data } = useQuery({ queryKey: ["overview"], queryFn: aagam.overview, refetchInterval: 60_000 });
+  const { data: trash } = useQuery({ queryKey: ["trash"], queryFn: aagam.trash, staleTime: 60_000, retry: (n, e) => !missing(e) && n < 1 });
+  const { data: system } = useSystem();
+  const update = Boolean(system?.updates.available);
+  const binned = (trash?.count ?? 0) + (trash?.loose.length ?? 0);
   const badges = {
     work: data?.works_open ? { n: data.works_open, alert: data.works.some((w) => w.due_on && w.due_on < new Date().toISOString().slice(0, 10)) } : null,
     due: data ? (() => { const late = data.due.filter((d) => d.state === "overdue").length; return late ? { n: late, alert: true } : null; })() : null,
+    trash: binned ? { n: binned, alert: false } : null,
   };
 
   return (
@@ -110,6 +119,17 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t border-bg-border p-2 space-y-0.5">
+        <NavLink
+          to="/system"
+          title={small ? (update ? "Updates & health: a new version is ready" : "Updates & health") : undefined}
+          className={({ isActive }) => clsx("relative flex items-center gap-2.5 py-1.5 rounded-lg text-sm", small ? "justify-center" : "px-2.5",
+            isActive ? "bg-accent-brand/10 text-accent-brand font-medium" : "text-text-secondary hover:text-text-primary hover:bg-bg-hover")}
+        >
+          <HeartPulse size={16} /> {!small && <span className="flex-1">Updates & health</span>}
+          {update && (small
+            ? <span className="absolute top-1 right-2.5 w-2 h-2 rounded-full bg-accent-brand" aria-label="A new version is ready" />
+            : <span className="text-[10.5px] rounded-full px-1.5 font-semibold bg-accent-brand/15 text-accent-brand">New</span>)}
+        </NavLink>
         <NavLink
           to="/help"
           title={small ? "Help: what AAGAM does" : undefined}

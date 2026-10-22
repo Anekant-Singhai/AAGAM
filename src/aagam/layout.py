@@ -33,21 +33,24 @@ def _rows(segments: list[tuple[float, float, float, str]], top_down: bool) -> st
 def pdf_rows(path: Path, page_no: int) -> str:
     import pypdfium2 as pdfium
 
-    pdf = pdfium.PdfDocument(path)
-    try:
-        page = pdf[page_no - 1]
-        textpage = page.get_textpage()
-        segments = []
-        for index in range(textpage.count_rects()):
-            left, bottom, right, top = textpage.get_rect(index)
-            text = " ".join(textpage.get_text_bounded(left, bottom, right, top).split())
-            if text:
-                segments.append(((bottom + top) / 2, left, top - bottom, text))
-        textpage.close()
-        page.close()
-        return _rows(segments, top_down=False)  # PDF y grows upwards
-    finally:
-        pdf.close()
+    from csdesk.documents.intake import PDFIUM
+
+    with PDFIUM:
+        pdf = pdfium.PdfDocument(path)
+        try:
+            page = pdf[page_no - 1]
+            textpage = page.get_textpage()
+            segments = []
+            for index in range(textpage.count_rects()):
+                left, bottom, right, top = textpage.get_rect(index)
+                text = " ".join(textpage.get_text_bounded(left, bottom, right, top).split())
+                if text:
+                    segments.append(((bottom + top) / 2, left, top - bottom, text))
+            textpage.close()
+            page.close()
+        finally:
+            pdf.close()
+    return _rows(segments, top_down=False)  # PDF y grows upwards
 
 
 def ocr_rows(png: bytes) -> str:

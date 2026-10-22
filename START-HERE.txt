@@ -1,0 +1,120 @@
+AAGAM
+=====
+
+This page is the whole installation. You do not need to know anything
+about Python, GitHub or programming.
+
+
+Install AAGAM on this computer
+------------------------------
+
+1. If you are looking at this file inside a ZIP, close it.
+   Right-click the ZIP, choose Extract All, then Extract.
+
+2. Open the extracted folder (it is usually called AAGAM-main).
+
+3. Double-click install.cmd.
+
+4. If Windows says "Windows protected your PC", click More info,
+   then Run anyway. Windows says this about any program that is not
+   from the Microsoft Store.
+
+5. A black window opens and tells you what it is doing. The first
+   time takes about 15 to 30 minutes, mostly downloading. Leave it open.
+
+6. When it finishes, AAGAM opens in your browser.
+   A shortcut named AAGAM is also on the desktop and in the Start menu.
+
+If the internet stops halfway, double-click install.cmd again.
+It carries on from where it stopped. Your documents are never touched
+by installing.
+
+You can delete the ZIP and the extracted folder afterwards.
+
+
+Open AAGAM later
+----------------
+
+Double-click AAGAM on the desktop.
+Or press the Windows key, type AAGAM, and press Enter.
+
+The address http://127.0.0.1:8765 is this computer, not a website.
+Other computers cannot open it.
+
+
+If AAGAM will not open
+----------------------
+
+Press the Windows key, type AAGAM Manager, and press Enter.
+Type a number and press Enter.
+
+  1   Open AAGAM
+  2   Check for updates
+  3   Update now
+  4   Health check
+  5   Repair (sets AAGAM up again; your documents are kept)
+  6   Install or repair the local AI
+  7   Connect Claude Desktop
+  8   Set the update key (only if the GitHub repository is private)
+  9   Uninstall AAGAM
+  10  Back up my data
+  11  Save a report for help
+  0   Exit
+
+Start with 4. If it finds a problem, choose 5.
+
+
+Updates
+-------
+
+When a new version is put on GitHub, this computer installs it:
+
+- by itself, while AAGAM is open and not busy reading documents, and
+- every day at 8:00, if AAGAM is closed.
+
+Your documents and records are never changed by an update.
+If an update goes wrong, the previous version is put back by itself.
+Open Updates & health inside AAGAM to check now, or to turn automatic
+updates off.
+
+After an update, if you use Claude Desktop, quit it and open it again.
+
+
+Back up your work
+-----------------
+
+In AAGAM, open Updates & health, then Back up my data.
+The copy is in your Documents folder, inside a folder called
+"AAGAM backups". Each copy has a READ ME.txt that says how to put it back.
+
+On a new laptop: install AAGAM, close it, then replace the AAGAM data
+folder with that copy. The data folder is usually
+
+  C:\Users\<your name>\AAGAM
+
+
+When you need help
+------------------
+
+In AAGAM, open Updates & health, then Save a report for help.
+A file appears on the Desktop. Send that file.
+
+It contains the health check and recent logs. It does not contain your
+documents or your update key.
+
+The same file can be made from AAGAM Manager, choice 11.
+Logs also live in C:\Users\<your name>\AAGAM\logs
+and in %TEMP%\aagam-install.log
+
+
+Where things are
+----------------
+
+The program     C:\Users\<your name>\AppData\Local\Programs\AAGAM
+Your documents  C:\Users\<your name>\AAGAM
+Backups         Documents\AAGAM backups
+Shortcuts       Desktop and Start menu: AAGAM, AAGAM Manager, CS Desk browser
+
+Uninstall from Windows Settings, Apps, AAGAM.
+That removes the program and keeps your documents, unless you choose
+to delete them too.

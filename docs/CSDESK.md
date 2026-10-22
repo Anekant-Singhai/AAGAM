@@ -1,6 +1,6 @@
 # CS Desk: foundations map
 
-> CS Desk is now AAGAM's core (`src/csdesk` in this repository); [AAGAM.md](AAGAM.md) is the map of the whole system. Where this page says CSDESK_HOME, read AAGAM_HOME (default `%USERPROFILE%\AAGAM`); `I:\Shruti` paths now live under `I:\AAGAM`, and Claude Desktop starts `aagam mcp`, which includes every tool listed here.
+> CS Desk is now AAGAM's core (`src/csdesk` in this repository); [AAGAM.md](AAGAM.md) is the map of the whole system. Where this page says CSDESK_HOME, read AAGAM_HOME (default `%USERPROFILE%\AAGAM`); Claude Desktop starts `aagam mcp`, which includes every tool listed here. Installing, updating and uninstalling are in the [README](../README.md).
 
 CS Desk takes the typing and the reading off a Company Secretary's plate. Claude reads her documents and fills forms. She checks the work, signs with her DSC and submits. This page maps what is built, how the parts fit together, the rules the code enforces, and what comes next.
 
@@ -158,16 +158,16 @@ The code folder never holds client data. Back up CSDESK_HOME, and turn on Window
 
 ## Running it
 
-On her laptop, run `scripts\setup-windows.cmd -ConfigureClaude -DesktopShortcut` and then restart Claude Desktop. The script creates the Python environment, installs CS Desk and sets up the data folder. It also adds CS Desk to Claude Desktop's config, keeping a backup, and puts a "CS Desk browser" shortcut on the desktop.
+On her laptop, AAGAM's installer (`install.cmd`, see the README) sets everything up: the Python environment, the data folder, Claude Desktop's config (with a backup) and a "CS Desk browser" shortcut on the desktop.
 
 To work on it here:
 
 ```
-.venv\Scripts\python -m pytest                                  # 115 tests; the browser ones use the installed Chrome
-$env:CSDESK_HOME = "I:\Shruti\.dev-data"; .venv\Scripts\csdesk due
+.venv\Scripts\python -m pytest                                  # the browser tests use the installed Chrome or Edge
+$env:AAGAM_HOME = "$PWD\.dev-data"; .venv\Scripts\csdesk due
 ```
 
-`.mcp.json` registers the server with Claude Code in this folder, with `.dev-data` as its data folder (never real client data). Claude Code asks for approval the first time.
+A local `.mcp.json` (not kept in the repository; `aagam claude-config` prints the entry) registers the server with Claude Code in this folder, with `.dev-data` as its data folder (never real client data). Claude Code asks for approval the first time.
 
 | Command | What it does |
 |---|---|

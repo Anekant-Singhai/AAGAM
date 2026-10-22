@@ -162,6 +162,8 @@ def _gaps(c: dict[str, Any], file: dict[str, Any], current: list[dict[str, Any]]
         designated = [p for p in current if p["role"] == "designated_partner"]
         if len(designated) < 2:
             gaps.append(f"{len(designated)} designated partner(s) on file; an LLP needs at least two (LLP Act s.7).")
+        gaps += [f"{p['name']} is a designated partner but has no DIN on file (LLP Act s.7(6))." for p in designated if not p["din"]]
+        gaps += [f"No next DIN KYC date on file for {p['name']}." for p in designated if p["din"] and not p["kyc_next_due"]]
         return gaps
     directors = [p for p in current if p["role"] in DIRECTOR_ROLES]
     needed = MIN_DIRECTORS.get(c["company_class"])

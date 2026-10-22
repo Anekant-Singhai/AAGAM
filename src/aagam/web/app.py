@@ -44,6 +44,7 @@ from .. import (
 )
 from ..config import AagamSettings
 from ..db import open_db
+from . import folders_api, system_api, trash_api
 
 log = logging.getLogger("aagam.web")
 STATIC = Path(__file__).parent / "static"
@@ -59,6 +60,7 @@ class DocumentChanges(BaseModel):
     company_name: str | None = None
     meeting_kind: str | None = None
     meeting_date: str | None = None
+    doc_date: str | None = None
 
 
 class PageTextIn(BaseModel):
@@ -266,6 +268,7 @@ class InboxWatcher(threading.Thread):
             for result in results:
                 if result.get("document_id") and not result.get("already_on_file"):
                     library.index_new(vault, self.settings.core, result["document_id"])
+                    library.file_under_client(vault, result["document_id"])
         return results
 
     def stop(self) -> None:
@@ -287,6 +290,8 @@ def create_app(settings: AagamSettings, background: bool = True) -> FastAPI:
                 helpers.append(ai.Worker(settings))
             helpers.append(InboxWatcher(settings))
             helpers.append(OcrWorker(settings))
+            helpers.extend(folders_api.helpers(settings))
+            helpers.extend(system_api.helpers(settings))
             for helper in helpers:
                 helper.start()
         yield
@@ -316,15 +321,22 @@ def create_app(settings: AagamSettings, background: bool = True) -> FastAPI:
     def company_id_of(vault: Any, company: str | None) -> int | None:
         return vault.resolve_company(company) if company else None
 
+    # Folders, the Trash, and this computer (health, updates, repairs): each in its own module.
+    for module in (folders_api, trash_api, system_api):
+        app.include_router(module.router(settings, db))
+
     # ---------------------------------------------------------- overview
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "version": __version__}
+        from ..updates import app_folder, running_commit
+
+        return {"ok": True, "version": __version__, "commit": running_commit(app_folder())}
 
     @app.get("/api/meta")
     def meta() -> dict[str, Any]:
-        return {"version": __version__, "doc_types": DOC_TYPES, "data_folder": str(core.home), "inbox": str(core.inbox_dir)}
+        return {"version": __version__, "doc_types": DOC_TYPES, "data_folder": str(core.home), "inbox": str(core.inbox_dir),
+                "file_kinds": {key: label for key, (label, _) in library.FILE_KINDS.items()}}
 
     @app.get("/api/overview")
     def overview() -> dict[str, Any]:
@@ -360,13 +372,39 @@ def create_app(settings: AagamSettings, background: bool = True) -> FastAPI:
 
     # --------------------------------------------------------- documents
 
+    def library_filters(vault: Any, company: str | None, filters: dict[str, Any]) -> dict[str, Any]:
+        """The query's filters as library.Filters fields. company "none" means documents without a client."""
+        out = {k: v for k, v in filters.items() if v not in (None, "")}
+        if company == "none":
+            out["no_client"] = True
+        elif company:
+            out["company_id"] = company_id_of(vault, company)
+        return out
+
     @app.get("/api/documents")
     def documents(
         company: str | None = None, doc_type: str | None = None, tag: str | None = None, limit: int = 100, offset: int = 0,
-        name: str = "", year: str | None = None,
+        name: str = "", year: str | None = None, fy: str | None = None, date_from: str | None = None, date_to: str | None = None,
+        folder: int | None = None, within: str | None = None, kind: str | None = None, scanned: bool | None = None,
+        sort: str = "added",
     ) -> dict[str, Any]:
         with db() as vault:
-            return library.list_documents(vault, company_id_of(vault, company), doc_type, tag, min(limit, 500), offset, name, year or None)
+            given = library_filters(vault, company, {"doc_type": doc_type, "tag": tag, "name": name, "year": year, "fy": fy,
+                                                     "date_from": date_from, "date_to": date_to, "folder_id": folder,
+                                                     "within": within, "kind": kind, "scanned": scanned})
+            return library.list_documents(vault, limit=min(limit, 500), offset=offset, sort=sort, **given)
+
+    @app.get("/api/documents/facets")
+    def document_facets(
+        company: str | None = None, doc_type: str | None = None, tag: str | None = None, name: str = "", year: str | None = None,
+        fy: str | None = None, date_from: str | None = None, date_to: str | None = None, folder: int | None = None,
+        within: str | None = None, kind: str | None = None, scanned: bool | None = None,
+    ) -> dict[str, Any]:
+        with db() as vault:
+            given = library_filters(vault, company, {"doc_type": doc_type, "tag": tag, "name": name, "year": year, "fy": fy,
+                                                     "date_from": date_from, "date_to": date_to, "folder_id": folder,
+                                                     "within": within, "kind": kind, "scanned": scanned})
+            return library.facets(vault, library.Filters(**given))
 
     @app.post("/api/documents")
     async def upload(
@@ -375,22 +413,35 @@ def create_app(settings: AagamSettings, background: bool = True) -> FastAPI:
         doc_type: str | None = Form(None),
         tags: str | None = Form(None),
         note: str | None = Form(None),
+        paths: list[str] | None = Form(None),
+        modified: list[str] | None = Form(None),
     ) -> dict[str, Any]:
+        """Files from her computer. `company` "auto" files each under the client it points to. `paths` and `modified`, one
+        per file when given, are where each sat in a folder she dropped ("Acme/2024-25/notice.pdf") and when it last changed."""
         if doc_type and doc_type not in DOC_TYPES:
             raise Invalid(f"Unknown document type {doc_type!r}.")
         tag_list = [t for t in (tags or "").split(",") if t.strip()]
+        auto = company == "auto"
         results = []
         with tempfile.TemporaryDirectory() as tmp:
-            for upload_file in files:
+            for index, upload_file in enumerate(files):
                 name = Path(upload_file.filename or "upload").name
-                path = Path(tmp) / name
+                folder = Path(tmp) / str(index)
+                folder.mkdir()
+                path = folder / name
                 with path.open("wb") as out:
                     shutil.copyfileobj(upload_file.file, out)
+                relative = (paths[index] if paths and index < len(paths) else "").replace("\\", "/").strip("/")
+                when = modified[index] if modified and index < len(modified) and modified[index] else None
+                inside = "/".join(relative.split("/")[:-1]) if "/" in relative else None
+                origin = library.Origin(folder=inside, modified=when) if inside or when else None
                 try:
                     with db() as vault:
-                        results.append(library.add_document(vault, core, path, company_id_of(vault, company), doc_type or None, tag_list, note))
+                        company_id = None if auto else company_id_of(vault, company)
+                        results.append(library.add_document(vault, core, path, company_id, doc_type or None, tag_list, note,
+                                                            origin=origin, work_out_client=auto))
                 except CsDeskError as exc:
-                    results.append({"file": name, "error": str(exc)})
+                    results.append({"file": relative or name, "error": str(exc)})
         return {"results": results}
 
     @app.get("/api/documents/{document_id}")
@@ -411,6 +462,7 @@ def create_app(settings: AagamSettings, background: bool = True) -> FastAPI:
                 vault.conn.execute("UPDATE documents SET doc_type = ? WHERE id = ?", (changes.doc_type, document_id))
             if changes.company is not None:
                 vault.conn.execute("UPDATE documents SET company_id = ? WHERE id = ?", (company_id_of(vault, changes.company) if changes.company else None, document_id))
+                editing._set_meta(vault, document_id, "client_why", "set by her")
             if changes.note is not None:
                 vault.conn.execute("UPDATE documents SET note = ? WHERE id = ?", (changes.note or None, document_id))
             if changes.title is not None:

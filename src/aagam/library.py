@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import replace
+from dataclasses import dataclass, fields, replace
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from csdesk.config import Settings
 from csdesk.documents import ingest as core_ingest
-from csdesk.documents.intake import DOC_TYPES
+from csdesk.documents.intake import DOC_TYPES, MEDIA_TYPES
 from csdesk.errors import Invalid, NotFound
 from csdesk.vault import Vault
 
@@ -33,9 +34,37 @@ from .finance.statements import is_statement_page
 
 TYPE_TAGS = {key: key.replace("_", "-") for key in DOC_TYPES}
 SENSITIVE_KINDS = {"pan"}
+# Kinds of file, for the library's filter.
+FILE_KINDS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "pdf": ("PDF", (".pdf",)),
+    "word": ("Word", (".docx", ".rtf")),
+    "excel": ("Excel", (".xlsx", ".xls", ".csv")),
+    "email": ("Email", (".eml", ".msg")),
+    "slides": ("PowerPoint", (".pptx",)),
+    "image": ("Image", (".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff")),
+    "web": ("Web page or data", (".html", ".htm", ".xml", ".json")),
+    "text": ("Text", (".txt", ".md")),
+}
+KIND_OF_MEDIA = {MEDIA_TYPES[suffix]: kind for kind, (_, suffixes) in FILE_KINDS.items() for suffix in suffixes}
 
 
 # ------------------------------------------------------------------- intake
+
+
+@dataclass(frozen=True)
+class Origin:
+    """Where a document came from on her computer, so the library can be sorted by folder and by date."""
+
+    path: str | None = None  # the file as she had it
+    folder_id: int | None = None  # the folder it was brought in with (folders.py)
+    folder: str | None = None  # the folder it sat in, inside that one: "Acme/2024-25/AGM" ('' at the top)
+    modified: str | None = None  # when the file last changed (ISO)
+
+    @classmethod
+    def of_file(cls, path: str | Path, **more: Any) -> Origin:
+        path = Path(path).expanduser().resolve()
+        modified = datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")
+        return cls(str(path), modified=modified, **more)
 
 
 def add_document(
@@ -47,15 +76,93 @@ def add_document(
     tags: list[str] | None = None,
     note: str | None = None,
     queue_ai: bool = True,
+    origin: Origin | None = None,
+    work_out_client: bool = False,
+    prepared: Any = None,
 ) -> dict[str, Any]:
-    """Bring a file in and index it. `doc_type` None means "work it out from the text"."""
-    info = core_ingest(vault, settings, path, company_id, doc_type or "other", note)
+    """Bring a file in and index it. `doc_type` None means "work it out from the text". With `work_out_client`, a
+    document that came without a client is filed under the one it points to (file_under_client); another
+    company's document (tagged "precedent") never is. `prepared` is the file already read by intake.prepare()."""
+    info = core_ingest(vault, settings, path, company_id, doc_type or "other", note, prepared=prepared)
     document_id = info["document_id"]
-    if not info.get("already_on_file") or not _indexed(vault, document_id):
+    fresh = not info.get("already_on_file") or not _indexed(vault, document_id)
+    if fresh and origin:
+        record_origin(vault, document_id, origin)
+    if fresh:
         index_new(vault, settings, document_id, keep_type=doc_type is not None, queue_ai=queue_ai)
     for tag in tags or []:
         add_tag(vault, document_id, tag, by="her")
+    if fresh and work_out_client and company_id is None and "precedent" not in {t.strip().lower() for t in tags or []}:
+        file_under_client(vault, document_id, Path(origin.folder).parts if origin and origin.folder else ())
     return {**info, **document(vault, document_id, brief=True)}
+
+
+def record_origin(vault: Vault, document_id: int, origin: Origin) -> None:
+    values = {"source_path": origin.path, "folder_id": origin.folder_id, "source_folder": origin.folder, "file_modified": origin.modified}
+    values = {k: v for k, v in values.items() if v is not None}
+    if not values:
+        return
+    columns = ", ".join(values)
+    vault.conn.execute(
+        f"INSERT INTO doc_meta (document_id, {columns}) VALUES (?, {', '.join('?' * len(values))}) "
+        f"ON CONFLICT(document_id) DO UPDATE SET {', '.join(f'{k} = excluded.{k}' for k in values)}",
+        (document_id, *values.values()),
+    )
+
+
+def _short_name(name: str) -> str:
+    """A company's name without its legal form, to match a folder called "Acme Widgets" to Acme Widgets Private Limited."""
+    key = entities.key_of("company", name)
+    return re.sub(r"\s*\b(?:(?:opc\s+)?private\s+limited|limited|llp|limited\s+liability\s+partnership)$", "", key).strip()
+
+
+def client_for(vault: Vault, document_id: int, folders: tuple[str, ...] | list[str] = ()) -> tuple[int, str] | None:
+    """The client a document belongs to, and why: the one whose CIN or LLPIN heads it, else the one a folder it sat in
+    is named after (nearest folder first), else the one whose name it carries. None unless exactly one client fits."""
+    clients = vault._rows("SELECT id, name, cin FROM companies")
+    if not clients:
+        return None
+    meta = vault.conn.execute("SELECT company_name, company_cin FROM doc_meta WHERE document_id = ?", (document_id,)).fetchone()
+    if meta and meta["company_cin"]:
+        same = [c for c in clients if c["cin"] == meta["company_cin"]]
+        if len(same) == 1:
+            label = "LLPIN" if "-" in meta["company_cin"] else "CIN"
+            return same[0]["id"], f"its {label} {meta['company_cin']}"
+    for part in reversed(list(folders)):
+        short = _short_name(part)
+        if len(short) < 4 and not re.search(r"[A-Z]{3}-\d{4}|[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}", part.upper()):
+            continue
+        same = [c for c in clients if _short_name(c["name"]) == short or (c["cin"] and c["cin"] in part.upper())]
+        if len(same) == 1:
+            return same[0]["id"], f"the folder “{part}”"
+    if meta and meta["company_name"]:
+        key = entities.key_of("company", meta["company_name"])
+        same = [c for c in clients if entities.key_of("company", c["name"]) == key]
+        if len(same) == 1:
+            return same[0]["id"], f"its company name, “{meta['company_name']}”"
+    return None
+
+
+def file_under_client(vault: Vault, document_id: int, folders: tuple[str, ...] | list[str] = (), wait_for_ocr: bool = True) -> int | None:
+    """Give a document without a client the client it points to (client_for). One still waiting to be read by OCR is
+    looked at again once it has been read (run_ocr_queue). Returns the client's id, or None."""
+    row = vault.conn.execute("SELECT company_id FROM documents WHERE id = ?", (document_id,)).fetchone()
+    if row is None or row["company_id"] is not None:
+        return None
+    found = client_for(vault, document_id, folders)
+    if found is None:
+        waiting = wait_for_ocr and vault.conn.execute(
+            "SELECT 1 FROM ai_jobs WHERE document_id = ? AND task = 'ocr' AND status IN ('queued', 'running')", (document_id,)
+        ).fetchone()
+        if waiting:
+            editing._set_meta(vault, document_id, "client_why", "pending: " + json.dumps(list(folders), ensure_ascii=False))
+        return None
+    company_id, why = found
+    vault.conn.execute("UPDATE documents SET company_id = ? WHERE id = ?", (company_id, document_id))
+    vault.conn.execute("UPDATE financials SET company_id = ? WHERE document_id = ? AND company_id IS NULL", (company_id, document_id))
+    editing._set_meta(vault, document_id, "client_why", why)
+    vault.log("file under client", {"document": document_id, "company_id": company_id, "why": why})
+    return company_id
 
 
 def index_new(vault: Vault, settings: Settings, document_id: int, keep_type: bool = False, queue_ai: bool = True) -> None:
@@ -98,6 +205,12 @@ def run_ocr_queue(db_path: Path, home: Path, limit: int | None = None) -> int:
                 note = result.get("skipped") or f"read {len(result['read'])} page(s)"
                 index_document(vault, job["document_id"], home=home)  # the type can only now be seen
                 queue(vault, job["document_id"], "summary")
+            with open_db(db_path, actor="ocr") as vault:
+                pending = editing._meta(vault, job["document_id"], "client_why") or ""
+                if pending.startswith("pending: "):
+                    # It came without a client; now that it can be read, see which client it is.
+                    vault.conn.execute("UPDATE doc_meta SET client_why = NULL WHERE document_id = ?", (job["document_id"],))
+                    file_under_client(vault, job["document_id"], json.loads(pending.removeprefix("pending: ")), wait_for_ocr=False)
         except Exception as exc:  # one bad scan mustn't stop the queue
             status, note = "failed", str(exc)[:500]
         with open_db(db_path, actor="ocr") as vault:
@@ -171,18 +284,21 @@ def index_document(vault: Vault, document_id: int, keep_type: bool = False, home
         editing.apply_clause_edits(vault, document_id)
 
     words = sum(len(text.split()) for _, text in pages)
+    doc_date, doc_date_basis = classify.dated(pages, detected, doc_type)
+    if doc_date is None:
+        doc_date, doc_date_basis = _undated(vault, row)
     conn.execute(
         """INSERT INTO doc_meta (document_id, title, detected_type, detected_why, company_name, company_cin,
-                                 meeting_kind, meeting_date, words, status, error, indexed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'indexed', NULL, datetime('now'))
+                                 meeting_kind, meeting_date, words, status, error, indexed_at, doc_date, doc_date_basis)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'indexed', NULL, datetime('now'), ?, ?)
            ON CONFLICT(document_id) DO UPDATE SET
              title = COALESCE(doc_meta.title, excluded.title), detected_type = excluded.detected_type,
              detected_why = excluded.detected_why, company_name = excluded.company_name,
              company_cin = excluded.company_cin, meeting_kind = excluded.meeting_kind,
              meeting_date = excluded.meeting_date, words = excluded.words, status = 'indexed', error = NULL,
-             indexed_at = excluded.indexed_at""",
+             indexed_at = excluded.indexed_at, doc_date = excluded.doc_date, doc_date_basis = excluded.doc_date_basis""",
         (document_id, detected.title, detected.doc_type, detected.why, detected.company_name, detected.company_cin,
-         meeting_kind, detected.meeting_date, words),
+         meeting_kind, detected.meeting_date, words, doc_date, doc_date_basis),
     )
     editing.apply_document_overrides(vault, document_id)
     meeting_kind = json.loads(editing._meta(vault, document_id, "overrides") or "{}").get("meeting_kind", meeting_kind)
@@ -217,6 +333,41 @@ def index_document(vault: Vault, document_id: int, keep_type: bool = False, home
                                   "statements": len(statements_found)})
     return {"document_id": document_id, "doc_type": doc_type, "facts": len(found), "resolutions": len(clauses),
             "financials": statements_found, "analyses": [a["kind"] for a in analyses]}
+
+
+def _undated(vault: Vault, row: Any) -> tuple[str, str]:
+    """For a document whose words give no date: when the file last changed, else the day it was added."""
+    modified = editing._meta(vault, row["id"], "file_modified")
+    if modified:
+        return modified[:10], "the day the file was last changed"
+    return row["ingested_at"][:10], "the day it was added"
+
+
+def backfill_dates(vault: Vault, limit: int = 200) -> int:
+    """Date documents read before AAGAM worked dates out, a few at a time (the background worker calls this)."""
+    rows = vault._rows(
+        """SELECT d.* FROM documents d LEFT JOIN doc_meta m ON m.document_id = d.id
+           WHERE m.doc_date IS NULL ORDER BY d.id LIMIT ?""",
+        (limit,),
+    )
+    for row in rows:
+        date_document(vault, row)
+    return len(rows)
+
+
+def date_document(vault: Vault, row: Any) -> None:
+    """Work out a document's date again from its words (a date she set still wins)."""
+    pages = pages_of(vault, row["id"])
+    detected = classify.detect(pages, row["original_name"])
+    doc_date, basis = classify.dated(pages, detected, row["doc_type"])
+    if doc_date is None:
+        doc_date, basis = _undated(vault, row)
+    vault.conn.execute(
+        """INSERT INTO doc_meta (document_id, doc_date, doc_date_basis) VALUES (?, ?, ?)
+           ON CONFLICT(document_id) DO UPDATE SET doc_date = excluded.doc_date, doc_date_basis = excluded.doc_date_basis""",
+        (row["id"], doc_date, basis),
+    )
+    editing.apply_document_overrides(vault, row["id"])
 
 
 def reindex_all(vault: Vault, home: Path | None = None) -> int:
@@ -310,8 +461,11 @@ def document(vault: Vault, document_id: int, brief: bool = False) -> dict[str, A
         """SELECT d.id, d.company_id, d.doc_type, d.original_name, d.stored_path, d.media_type, d.pages, d.note,
                   d.ingested_at, c.name AS client, m.title, m.detected_type, m.detected_why, m.company_name,
                   m.company_cin, m.meeting_kind, m.meeting_date, m.summary, m.summary_by, m.summary_at, m.key_points,
-                  m.suggested_tags, m.ocr_pages, m.edited_pages, m.overrides, m.words, m.status
+                  m.suggested_tags, m.ocr_pages, m.edited_pages, m.overrides, m.words, m.status,
+                  m.doc_date, m.doc_date_basis, m.source_path, m.source_folder, m.folder_id, m.file_modified,
+                  CASE WHEN m.client_why LIKE 'pending:%' THEN NULL ELSE m.client_why END AS client_why, f.path AS folder_path
            FROM documents d LEFT JOIN doc_meta m ON m.document_id = d.id LEFT JOIN companies c ON c.id = d.company_id
+           LEFT JOIN folders f ON f.id = m.folder_id
            WHERE d.id = ?""",
         (document_id,),
     ).fetchone()
@@ -333,8 +487,11 @@ def document(vault: Vault, document_id: int, brief: bool = False) -> dict[str, A
     out["scanned_pages"] = [
         r[0] for r in vault.conn.execute("SELECT page_no FROM document_pages WHERE document_id = ? AND needs_vision = 1", (document_id,))
     ]
+    out["doc_date"] = out["doc_date"] or out["meeting_date"] or out["ingested_at"][:10]
+    out["fy"] = fy_of(out["doc_date"])
     if brief:
-        return {k: out[k] for k in ("id", "doc_type", "title", "summary", "tags", "scanned_pages", "company_name", "meeting_kind")}
+        return {k: out[k] for k in ("id", "doc_type", "title", "summary", "tags", "scanned_pages", "company_name", "meeting_kind",
+                                    "doc_date", "company_id", "client")}
     out["facts"] = facts(vault, document_id)
     out["resolutions"] = vault._rows(
         """SELECT id, item_no, business, resolution_kind, title, sections, topics, max_amount, page_from, page_to,
@@ -373,6 +530,104 @@ def page_text(vault: Vault, document_id: int, page_no: int) -> dict[str, Any]:
     return dict(row)
 
 
+def fy_of(day: str | None) -> str | None:
+    """The Indian financial year a date falls in: 2024-09-30 is in 2024-25, 2025-03-31 too."""
+    if not day or not re.match(r"\d{4}-\d{2}", day):
+        return None
+    year, month = int(day[:4]), int(day[5:7])
+    start = year if month >= 4 else year - 1
+    return f"{start}-{(start + 1) % 100:02d}"
+
+
+# The date the library sorts and filters by: the document's own, else its meeting's, else the day it came in.
+DOC_DATE = "COALESCE(m.doc_date, m.meeting_date, substr(d.ingested_at, 1, 10))"
+FY_START = f"(CAST(substr({DOC_DATE}, 1, 4) AS INTEGER) - (CAST(substr({DOC_DATE}, 6, 2) AS INTEGER) < 4))"
+SORTS = {
+    "added": "d.id DESC",
+    "newest": f"{DOC_DATE} DESC, d.id DESC",
+    "oldest": f"{DOC_DATE} ASC, d.id ASC",
+    "name": "lower(COALESCE(m.title, d.original_name)) ASC, d.id ASC",
+}
+LIBRARY_FROM = "documents d LEFT JOIN doc_meta m ON m.document_id = d.id LEFT JOIN companies c ON c.id = d.company_id"
+
+
+@dataclass(frozen=True)
+class Filters:
+    """What the library is narrowed to. Every field is optional; dates are YYYY-MM-DD."""
+
+    company_id: int | None = None
+    no_client: bool = False  # only documents not filed under a client
+    doc_type: str | None = None
+    tag: str | None = None
+    name: str = ""
+    year: str | None = None  # calendar year of the document's date
+    fy: str | None = None  # "2024-25": 1 April 2024 to 31 March 2025
+    date_from: str | None = None
+    date_to: str | None = None
+    folder_id: int | None = None  # brought in with this folder
+    within: str | None = None  # and inside this folder of it: "Acme/2024-25"
+    kind: str | None = None  # a FILE_KINDS key
+    scanned: bool | None = None  # has (or has no) scanned pages
+
+    def where(self, skip: frozenset[str] | set[str] = frozenset()) -> tuple[str, list[Any]]:
+        """The SQL condition over LIBRARY_FROM, leaving out the filters named in `skip` (for counting a filter's choices)."""
+        where, params = ["1 = 1"], []
+        on = lambda key: key not in skip and getattr(self, key) not in (None, "", False)  # noqa: E731
+        if on("name") and self.name.strip():
+            # Filters by what the document is called, not its text (that is search's job).
+            where.append("(d.original_name LIKE ? OR m.title LIKE ? OR m.company_name LIKE ? OR m.source_folder LIKE ?)")
+            params += [f"%{self.name.strip()}%"] * 4
+        if on("company_id"):
+            where.append("d.company_id = ?")
+            params.append(self.company_id)
+        if on("no_client"):
+            where.append("d.company_id IS NULL")
+        if on("doc_type"):
+            where.append("d.doc_type = ?")
+            params.append(self.doc_type)
+        if on("tag"):
+            where.append("d.id IN (SELECT dt.document_id FROM document_tags dt JOIN tags t ON t.id = dt.tag_id WHERE t.name = ?)")
+            params.append(self.tag.lower())
+        if on("year"):
+            if not re.fullmatch(r"\d{4}", str(self.year)):
+                raise Invalid("Give the year as four digits, e.g. 2024.")
+            where.append(f"substr({DOC_DATE}, 1, 4) = ?")
+            params.append(str(self.year))
+        if on("fy"):
+            m = re.fullmatch(r"(\d{4})-(\d{2})", str(self.fy))
+            if not m or (int(m.group(1)) + 1) % 100 != int(m.group(2)):
+                raise Invalid("Give the financial year as e.g. 2024-25.")
+            start = int(m.group(1))
+            where.append(f"{DOC_DATE} BETWEEN ? AND ?")
+            params += [f"{start}-04-01", f"{start + 1}-03-31"]
+        for key, op in (("date_from", ">="), ("date_to", "<=")):
+            if on(key):
+                value = str(getattr(self, key))
+                try:
+                    date.fromisoformat(value)
+                except ValueError as exc:
+                    raise Invalid("Give dates as YYYY-MM-DD.") from exc
+                where.append(f"{DOC_DATE} {op} ?")
+                params.append(value)
+        if on("folder_id"):
+            where.append("m.folder_id = ?")
+            params.append(self.folder_id)
+        if on("within"):
+            inside = self.within.strip("/\\").replace("\\", "/")
+            if inside:
+                where.append("(m.source_folder = ? OR substr(m.source_folder, 1, ?) = ?)")
+                params += [inside, len(inside) + 1, inside + "/"]
+        if on("kind"):
+            if self.kind not in FILE_KINDS:
+                raise Invalid(f"Kinds of file: {', '.join(FILE_KINDS)}.")
+            media = sorted({MEDIA_TYPES[s] for s in FILE_KINDS[self.kind][1]})
+            where.append(f"d.media_type IN ({', '.join('?' * len(media))})")
+            params += media
+        if "scanned" not in skip and self.scanned is not None:
+            where.append(("" if self.scanned else "NOT ") + "EXISTS (SELECT 1 FROM document_pages p WHERE p.document_id = d.id AND p.needs_vision = 1)")
+        return " AND ".join(where), params
+
+
 def list_documents(
     vault: Vault,
     company_id: int | None = None,
@@ -382,40 +637,79 @@ def list_documents(
     offset: int = 0,
     name: str = "",
     year: str | None = None,
+    sort: str = "added",
+    **more: Any,
 ) -> dict[str, Any]:
-    where, params = ["1 = 1"], []
-    if name.strip():
-        # Filters by what the document is called, not its text (that is search's job).
-        where.append("(d.original_name LIKE ? OR d.id IN (SELECT document_id FROM doc_meta WHERE title LIKE ? OR company_name LIKE ?))")
-        params += [f"%{name.strip()}%"] * 3
-    if year:
-        # The year of the meeting it is about, or else the year it came in.
-        where.append("COALESCE((SELECT substr(meeting_date, 1, 4) FROM doc_meta WHERE document_id = d.id), substr(d.ingested_at, 1, 4)) = ?")
-        params.append(str(year))
-    if company_id is not None:
-        where.append("d.company_id = ?")
-        params.append(company_id)
-    if doc_type:
-        where.append("d.doc_type = ?")
-        params.append(doc_type)
-    if tag:
-        where.append("d.id IN (SELECT dt.document_id FROM document_tags dt JOIN tags t ON t.id = dt.tag_id WHERE t.name = ?)")
-        params.append(tag.lower())
-    sql_where = " AND ".join(where)
-    total = vault.conn.execute(f"SELECT COUNT(*) FROM documents d WHERE {sql_where}", params).fetchone()[0]
+    """Documents, newest added first (or by `sort`: newest, oldest, name), narrowed by any of the Filters."""
+    if sort not in SORTS:
+        raise Invalid(f"Sort by one of: {', '.join(SORTS)}.")
+    known = {f.name for f in fields(Filters)}
+    unknown = set(more) - known
+    if unknown:
+        raise Invalid(f"Unknown filter: {', '.join(sorted(unknown))}.")
+    filters = Filters(company_id=company_id, doc_type=doc_type, tag=tag, name=name or "", year=year, **more)
+    sql_where, params = filters.where()
+    total = vault.conn.execute(f"SELECT COUNT(*) FROM {LIBRARY_FROM} WHERE {sql_where}", params).fetchone()[0]
     rows = vault._rows(
-        f"""SELECT d.id, d.doc_type, d.original_name, d.pages, d.ingested_at, d.company_id, c.name AS client,
+        f"""SELECT d.id, d.doc_type, d.original_name, d.pages, d.ingested_at, d.company_id, d.media_type, c.name AS client,
                    m.title, m.company_name, m.meeting_kind, m.meeting_date, m.summary IS NOT NULL AS has_summary,
+                   {DOC_DATE} AS doc_date, m.doc_date_basis, m.source_folder, m.folder_id,
+                   CASE WHEN m.client_why LIKE 'pending:%' THEN NULL ELSE m.client_why END AS client_why,
                    (SELECT COUNT(*) FROM clauses cl WHERE cl.document_id = d.id) AS resolutions,
                    (SELECT group_concat(t.name, ' ') FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
                      WHERE dt.document_id = d.id) AS tags
-            FROM documents d LEFT JOIN doc_meta m ON m.document_id = d.id LEFT JOIN companies c ON c.id = d.company_id
-            WHERE {sql_where} ORDER BY d.id DESC LIMIT ? OFFSET ?""",
+            FROM {LIBRARY_FROM}
+            WHERE {sql_where} ORDER BY {SORTS[sort]} LIMIT ? OFFSET ?""",
         [*params, limit, offset],
     )
     for r in rows:
         r["tags"] = sorted((r["tags"] or "").split())
+        r["fy"] = fy_of(r["doc_date"])
+        r["kind"] = KIND_OF_MEDIA.get(r["media_type"])
     return {"total": total, "documents": rows}
+
+
+def facets(vault: Vault, filters: Filters) -> dict[str, Any]:
+    """The choices each library filter offers, each counted with the other filters applied: types, clients, financial
+    years, folders (and the folders inside the chosen one), kinds of file."""
+
+    def counted(skip: set[str], select: str, group: str, joins: str = "") -> list[dict[str, Any]]:
+        sql_where, params = filters.where(frozenset(skip))
+        return vault._rows(
+            f"SELECT {select}, COUNT(*) AS documents FROM {LIBRARY_FROM} {joins} WHERE {sql_where} GROUP BY {group} ORDER BY documents DESC",
+            params,
+        )
+
+    types = [{"key": r["key"], "label": DOC_TYPES.get(r["key"], r["key"]), "documents": r["documents"]}
+             for r in counted({"doc_type"}, "d.doc_type AS key", "d.doc_type")]
+    clients = [{"key": r["key"], "label": r["label"] or "No client", "documents": r["documents"]}
+               for r in counted({"company_id", "no_client"}, "d.company_id AS key, c.name AS label", "d.company_id")]
+    years = sorted(counted({"fy", "year", "date_from", "date_to"}, f"{FY_START} AS start", FY_START), key=lambda r: -(r["start"] or 0))
+    fys = [{"key": f"{r['start']}-{(r['start'] + 1) % 100:02d}", "documents": r["documents"]} for r in years if r["start"]]
+    folder_rows = counted({"folder_id", "within"}, "m.folder_id AS key, f.path AS label", "m.folder_id",
+                          "LEFT JOIN folders f ON f.id = m.folder_id")
+    folder_list = [{"key": r["key"], "label": r["label"], "documents": r["documents"]} for r in folder_rows if r["key"] is not None]
+    kinds: dict[str, int] = {}
+    for r in counted({"kind"}, "d.media_type AS media", "d.media_type"):
+        kind = KIND_OF_MEDIA.get(r["media"], "other")
+        kinds[kind] = kinds.get(kind, 0) + r["documents"]
+    inside: dict[str, int] = {}
+    if filters.folder_id is not None:
+        prefix = (filters.within or "").strip("/\\").replace("\\", "/")
+        for r in counted({"within"}, "m.source_folder AS folder", "m.source_folder"):
+            rest = (r["folder"] or "").removeprefix(prefix).strip("/") if not prefix or (r["folder"] or "").startswith(prefix) else None
+            if rest:
+                child = f"{prefix}/{rest.split('/')[0]}" if prefix else rest.split("/")[0]
+                inside[child] = inside.get(child, 0) + r["documents"]
+    return {
+        "types": types,
+        "clients": clients,
+        "fys": fys,
+        "folders": folder_list,
+        "inside": [{"key": k, "label": k.split("/")[-1], "documents": n} for k, n in sorted(inside.items())],
+        "kinds": [{"key": k, "label": FILE_KINDS[k][0] if k in FILE_KINDS else "Other", "documents": n}
+                  for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])],
+    }
 
 
 # ----------------------------------------------------------------- search
