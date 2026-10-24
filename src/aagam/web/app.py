@@ -308,6 +308,8 @@ def create_app(settings: AagamSettings, background: bool = True) -> FastAPI:
             return JSONResponse({"detail": "AAGAM only answers on this computer."}, status_code=403)
         if request.method not in SAFE_METHODS and request.url.path.startswith("/api/") and request.headers.get(CHANGE_HEADER) != "1":
             return JSONResponse({"detail": "Changes must come from the AAGAM window."}, status_code=403)
+        if request.url.path != "/api/health":  # the window's "is AAGAM still there?" doesn't count as using it
+            system_api.note_activity()
         return await call_next(request)
 
     @app.exception_handler(CsDeskError)

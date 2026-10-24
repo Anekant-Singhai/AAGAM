@@ -45,11 +45,15 @@ export const api = {
 
 /** The server's health answer, without the change header or error handling: used while AAGAM restarts after an update. */
 export async function health(): Promise<{ ok: boolean; version: string; commit?: string | null } | null> {
+  const giveUp = new AbortController();
+  const timer = window.setTimeout(() => giveUp.abort(), 4_000);
   try {
-    const res = await fetch(`${BASE}/health`, { cache: "no-store" });
+    const res = await fetch(`${BASE}/health`, { cache: "no-store", signal: giveUp.signal });
     return res.ok ? await res.json() : null;
   } catch {
     return null;
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 

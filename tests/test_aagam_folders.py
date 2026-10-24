@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -256,7 +257,12 @@ def test_a_file_that_goes_mid_pass_is_passed_over(settings, tmp_path):
         folder_id = folders.add_folder(vault, settings.home, root)["id"]
 
     def remove_the_last(rel, status, error):
-        (root / "2.txt").unlink(missing_ok=True)
+        for _ in range(100):
+            try:
+                (root / "2.txt").unlink(missing_ok=True)
+                return
+            except PermissionError:  # a read-ahead thread has it open for a moment; Windows won't delete an open file
+                time.sleep(0.02)
 
     folders.run_queue(settings, "test", on_file=remove_the_last)
     with vault_of(settings) as vault:

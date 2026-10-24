@@ -395,6 +395,14 @@ def test_claude_desktop_entry_is_taken_out_on_uninstall(tmp_path):
     assert len(list(tmp_path.glob("claude_desktop_config.json.*.bak"))) == 1
     assert updates.remove_claude_entry([config]) == [], "nothing to take out the second time"
 
+    # Uninstalling one copy leaves another copy's entry (a developer's, say) alone.
+    app = tmp_path / "app"
+    mine = {"command": str(app / ".venv" / "Scripts" / "python.exe"), "args": ["-m", "aagam", "mcp"]}
+    config.write_text(json.dumps({"mcpServers": {"aagam": {"command": "I:\\dev\\.venv\\Scripts\\python.exe"}}}), encoding="utf-8")
+    assert updates.remove_claude_entry([config], app) == []
+    config.write_text(json.dumps({"mcpServers": {"aagam": mine}}), encoding="utf-8")
+    assert updates.remove_claude_entry([config], app) == [str(config)]
+
 
 def test_the_updater_records_an_installation(tmp_path, capsys):
     app = make_app(tmp_path)
@@ -426,7 +434,8 @@ def test_the_system_page_shows_this_copy_and_changes_its_update_settings(system,
     client, app, _ = system
     about = client.get("/api/system").json()
     assert set(about) == {"version", "commit", "installed_at", "app_folder", "data_folder", "mode", "auto_update", "repo", "branch",
-                          "has_token", "updates"}
+                          "has_token", "autostart", "updates"}
+    assert about["autostart"] is False  # a test's copy has no Python of its own, so it never starts with Windows
     assert (about["mode"], about["commit"], about["data_folder"]) == ("archive", OLD, str(settings.home))
     assert set(about["updates"]) == set(updates.STATE_KEYS)
     assert client.get("/api/health").json()["commit"] == OLD
@@ -508,6 +517,7 @@ def test_the_watcher_updates_by_itself_only_when_allowed_and_idle(settings, tmp_
     monkeypatch.setitem(system_api.LAUNCHERS, "apply", lambda app_dir, s: started.append(app_dir))
     aagam_settings = AagamSettings(core=settings, local_ai=False)
     watcher = system_api.UpdateWatcher(aagam_settings)
+    monkeypatch.setattr(system_api, "idle_for", lambda: system_api.IDLE_BEFORE_UPDATE + 1)  # nobody has used the window
 
     monkeypatch.setattr(system_api, "_busy", lambda s: True)
     assert watcher.tick() is False and not started  # reading something: wait
@@ -515,8 +525,75 @@ def test_the_watcher_updates_by_itself_only_when_allowed_and_idle(settings, tmp_
     updates.write_record(app, auto_update=False)
     assert watcher.tick() is False and not started  # she chose to update by hand
     updates.write_record(app, auto_update=True)
+    monkeypatch.setattr(system_api, "idle_for", lambda: 60.0)
+    assert watcher.tick() is False and not started, "she used the window a minute ago: the update waits"
+    assert updates.state(app)["available"] is True  # meanwhile the window offers Update now
+    monkeypatch.setattr(system_api, "idle_for", lambda: system_api.IDLE_BEFORE_UPDATE + 1)
     assert watcher.tick() is True and started == [app]
     assert updates.state(app)["status"] == "applying"
+
+
+def test_using_the_window_counts_as_activity_but_its_health_checks_dont(system):
+    client, _, _ = system
+    client.get("/api/overview")
+    assert system_api.idle_for() < 5
+    system_api._ACTIVITY["last"] -= 3600
+    client.get("/api/health")
+    assert system_api.idle_for() > 3000, "the window asking whether AAGAM is still there isn't her working"
+    client.get("/api/documents")
+    assert system_api.idle_for() < 5
+
+
+def test_a_watcher_asks_github_only_every_so_often(settings, tmp_path, monkeypatch):
+    app = make_app(tmp_path)
+    monkeypatch.setenv("AAGAM_APP_DIR", str(app))
+    github = FakeGitHub(head=OLD)  # nothing new
+    monkeypatch.setattr(updates, "http_get", github)
+    watcher = system_api.UpdateWatcher(AagamSettings(core=settings, local_ai=False))
+    watcher.tick()
+    asked = len(github.calls)
+    watcher.tick()
+    assert len(github.calls) == asked, "checked a moment ago: no need to ask GitHub again"
+    updates.save_state(app, checked_at="2026-01-01T09:00:00")
+    watcher.tick()
+    assert len(github.calls) > asked
+
+
+def test_a_record_naming_a_missing_branch_follows_the_repository_s_default(tmp_path):
+    app = make_app(tmp_path)  # recorded as "main"
+    github = FakeGitHub()
+    github.status = {f"/repos/{REPO}/commits/main": (404, {}, b'{"message": "No commit found for SHA: main"}')}
+
+    def answers(url, headers):
+        if url.endswith(f"/repos/{REPO}"):
+            return 200, {}, json.dumps({"default_branch": "master"}).encode()
+        if url.endswith(f"/repos/{REPO}/commits/master"):
+            return 200, {}, json.dumps(_commit(NEW, "On master")).encode()
+        return github(url, headers)
+
+    found = updates.check(app, answers)
+    assert found["error"] is None and found["available"] and found["latest"]["commit"] == NEW
+    assert updates.read_record(app)["branch"] == "master"
+
+
+def test_a_copy_installed_from_a_zip_takes_github_s_commit_when_the_versions_match(tmp_path):
+    app = make_app(tmp_path, version="0.3.0", commit=None)
+    found = updates.check(app, FakeGitHub(version="0.3.0"))
+    assert found["available"] is False, "the same version as GitHub's newest: no update to itself straight after installing"
+    assert updates.read_record(app)["commit"] == NEW
+    older = make_app(tmp_path / "older", version="0.2.0", commit=None)
+    assert updates.check(older, FakeGitHub(version="0.3.0"))["available"] is True
+    newer = make_app(tmp_path / "newer", version="0.3.1", commit=None)
+    assert updates.check(newer, FakeGitHub(version="0.3.0"))["available"] is False, "never back to an older version"
+
+
+def test_starting_with_windows_is_never_set_by_tests(tmp_path):
+    app = make_app(tmp_path)
+    (app / ".venv" / "Scripts").mkdir(parents=True)
+    (app / ".venv" / "Scripts" / "pythonw.exe").write_bytes(b"")
+    assert updates.set_autostart(app, True) is None
+    assert updates.autostart(app) is False, "AAGAM_NO_SYSTEM_CHANGES keeps the registry untouched"
+    assert updates.register_daily_update(app) is None
 
 
 # ------------------------------------------------------------------ Claude Desktop's config, the command line

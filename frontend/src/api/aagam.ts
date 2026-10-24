@@ -129,7 +129,8 @@ export const aagam = {
   system: () => api.get<SystemInfo>("/system"),
   checkUpdates: () => api.post<UpdateState>("/system/updates/check"),
   applyUpdate: () => api.post<{ started: boolean }>("/system/updates/apply"),
-  updateSettings: (body: { auto_update?: boolean; repo?: string; branch?: string; token?: string | null }) => api.put<SystemInfo>("/system/updates/settings", body),
+  updateSettings: (body: { auto_update?: boolean; autostart?: boolean; repo?: string; branch?: string; token?: string | null }) =>
+    api.put<SystemInfo>("/system/updates/settings", body),
   health: () => api.get<{ checks: HealthCheck[] }>("/system/health"),
   repair: (action: string) => api.post<{ started: boolean; task: string }>(`/system/repair/${encodeURIComponent(action)}`),
   task: (task: string) => api.get<SystemTask>(`/system/tasks/${encodeURIComponent(task)}`),

@@ -138,6 +138,8 @@ def normal_section(raw: str) -> str:
 
 def company_name(raw: str) -> str | None:
     raw = re.sub(r"^.*\b(?:Meeting|Members|Shareholders|Directors|Notice|Board|Report|Statements?)\s+of\s+(?:the\s+)?", "", raw)
+    # An agreement's heading run into its first line ("LIMITED LIABILITY PARTNERSHIP AGREEMENT This LLP...") isn't a name.
+    raw = re.sub(r"(?i)^(?:.*\b)?(?:LLP|partnership|supplementary|shareholders'?|joint\s+venture)\s+(?:\w+\s+)?agreement\s+(?:this\s+)?", "", raw)
     raw = re.sub(r"\s*&\s*", " & ", raw)
     raw = re.sub(r"(?i)^(?:name\s+of\s+(?:the\s+)?company|company\s+name)\b[\s:\-–]*", "", raw)
     if re.search(r"\d{5}", raw):

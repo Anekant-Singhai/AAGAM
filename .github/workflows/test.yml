@@ -1,9 +1,9 @@
-# Laptops install whatever is on main. This check should be green before that push.
+# Laptops install whatever is on the default branch (master). This check should be green before that push.
 name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   pull_request:
 
 jobs:

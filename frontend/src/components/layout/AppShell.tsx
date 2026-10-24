@@ -13,6 +13,7 @@ import { DeskContext, usePreference, useTheme } from "../../lib/theme";
 import { asItem, dropHasFolder, filesFromDrop } from "../../lib/drop";
 import type { UploadItem } from "../../api/aagam";
 import { ConfirmProvider } from "../dialogs";
+import { ConnectionWatch } from "../Updates";
 
 const typing = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
@@ -119,6 +120,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <CommandPalette open={palette} onClose={() => setPalette(false)} setTheme={setTheme} />
         <HelpDrawer open={help} onClose={closeHelp} />
         <UploadDialog open={upload.open} initial={upload.files} onClose={closeUpload} />
+        <ConnectionWatch />
         {dragging && !upload.open && (
           <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center fade-in">
             <div className="absolute inset-3 rounded-3xl border-2 border-dashed border-accent-brand bg-accent-brand/5 backdrop-blur-[1px]" />

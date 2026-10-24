@@ -29,7 +29,7 @@ You need a Windows 10 or 11 laptop and an internet connection. The installer dow
 ### Step 2: Unzip it
 
 1. Open your **Downloads** folder.
-2. Right-click **AAGAM-main.zip** and choose **Extract All…**, then **Extract**.
+2. Right-click **AAGAM-master.zip** and choose **Extract All…**, then **Extract**.
 
 Don't run anything from inside the ZIP without extracting it first.
 
@@ -37,7 +37,7 @@ Don't run anything from inside the ZIP without extracting it first.
 
 The same steps are on one plain page in the folder: **START-HERE.txt**. Open that if you would rather not read this file.
 
-1. Open the extracted folder **AAGAM-main**.
+1. Open the extracted folder **AAGAM-master**.
 2. Double-click **install.cmd**.
 3. If Windows shows **"Windows protected your PC"**, click **More info**, then **Run anyway**. (Windows says this about any program that isn't from the Microsoft Store.)
 
@@ -49,6 +49,7 @@ A black window opens and shows what it is doing:
 - installing the local AI (Ollama and its model, about 3 GB);
 - connecting AAGAM to Claude Desktop, if Claude Desktop is installed;
 - putting **AAGAM**, **CS Desk browser** and **AAGAM Manager** on the desktop and in the Start menu;
+- starting AAGAM quietly in the background whenever you sign in to Windows, so it is always ready;
 - finally, a health check. When it says **AAGAM is ready**, press any key to close the window.
 
 If the internet drops halfway, just double-click **install.cmd** again. It carries on from where it stopped.
@@ -59,12 +60,14 @@ You can delete the downloaded ZIP and the extracted folder afterwards. AAGAM doe
 
 Double-click **AAGAM** on the desktop (or press the Windows key and type **AAGAM**). It opens in your web browser at `http://127.0.0.1:8765`. That address is your own laptop, not a website.
 
+The very first time, a small **Opening AAGAM…** window may show for up to a minute while Windows checks the new program. That is normal; after that it opens at once.
+
 ### Installing with one line instead (public repository only)
 
 If the repository is public, you can skip steps 1 to 3. Open **PowerShell** (Windows key, type *PowerShell*, Enter) and paste:
 
 ```
-irm https://raw.githubusercontent.com/Anekant-Singhai/AAGAM/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/Anekant-Singhai/AAGAM/HEAD/scripts/install.ps1 | iex
 ```
 
 ### Choosing what gets installed
@@ -75,6 +78,7 @@ Most people should just double-click **install.cmd**. To leave something out, op
 .\install.cmd -NoLocalAI          # no local AI (saves about 3 GB)
 .\install.cmd -NoClaude           # don't connect Claude Desktop
 .\install.cmd -NoShortcuts        # no desktop or Start menu shortcuts
+.\install.cmd -NoAutostart        # don't start AAGAM when you sign in to Windows
 ```
 
 ### Claude Desktop (optional)
@@ -111,19 +115,20 @@ Add an LLP in **Clients** with its LLPIN (for example `AAB-1234`). AAGAM then:
 
 ## Updates
 
-AAGAM looks for a new version on GitHub by itself, shortly after it opens and every few hours. Once a day at 8:00, if AAGAM is closed, it installs a waiting update and stays closed until you open it. It never installs an update while you are in the middle of bringing documents in.
+AAGAM looks for a new version on GitHub by itself, shortly after it starts and every two hours.
 
-- When there is one, AAGAM shows **"A new version of AAGAM is ready"**. Press **Update now**. AAGAM closes for about a minute, updates itself, and comes back on its own.
-- With **Install updates automatically** switched on (it is, unless you turn it off), AAGAM updates itself when it isn't busy reading anything.
+- When there is one, AAGAM shows **"A new version of AAGAM is ready"**. Press **Update now** whenever it suits you. AAGAM closes for about a minute, updates itself, and the window comes back on its own.
+- With **Install updates by themselves** switched on (it is, unless you turn it off), AAGAM also puts a new version in place by itself, but only once it has been left alone for 20 minutes and isn't reading any documents. It never interrupts your work. If AAGAM is closed altogether, a daily check at 8:00 does it.
+- If the AAGAM window is open while it restarts, the window says **AAGAM is starting again…** and comes back by itself.
 - **Your documents and records are never touched by an update.** If anything goes wrong during an update, AAGAM puts the previous version back by itself.
-- To check now: **Updates & health** → **Check for updates**. Or Start menu → **AAGAM Manager** → **Update**.
+- To check now: **Updates & health** → **Check now**. Or Start menu → **AAGAM Manager** → **Check for updates**.
 - After an update, if you use Claude Desktop, quit it and open it again so it gets the new version too. AAGAM reminds you.
 
 **Private repository?** The laptop then needs an access key to see updates:
 
 1. On GitHub (signed in as the owner), go to **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
 2. Choose **Only select repositories**, pick **AAGAM**, and under **Repository permissions** set **Contents** to **Read-only**. Generate it and copy it.
-3. In AAGAM, open **Updates & health → Advanced**, paste it into **Access key**, and save. It is stored encrypted for your Windows account and never shown again.
+3. In AAGAM, open **Updates & health → More settings**, paste it into **Access key**, and save. It is stored encrypted for your Windows account and never shown again.
 
 ---
 
@@ -131,24 +136,26 @@ AAGAM looks for a new version on GitHub by itself, shortly after it opens and ev
 
 Open **Updates & health**. The **Health** list checks Python, the data folder, the database, the interface, the port, scanned-page reading (Windows OCR), Chrome or Edge, the local AI, Claude Desktop and disk space. Each line shows **OK**, **Worth a look** or **Needs fixing**, says what to do, and has a **Fix** button where AAGAM can fix it itself.
 
-**If AAGAM won't open at all,** use the Start menu → **AAGAM Manager**. It is a small window with numbered choices:
+### The AAGAM Manager
 
-```
- 1  Open AAGAM
- 2  Check for updates
- 3  Update now
- 4  Health check
- 5  Repair (set AAGAM up again; your data is kept)
- 6  Install or repair the local AI
- 7  Connect Claude Desktop
- 8  Set the update key (only for a private GitHub repository)
- 9  Uninstall
-10  Back up my data
-11  Save a report for help
- 0  Exit
-```
+**AAGAM Manager** (on the desktop and in the Start menu) is a small window that looks after AAGAM, even when AAGAM itself won't open. At the top it says whether AAGAM is running, which version you have, and whether an update is waiting. It has two switches:
 
-Type the number and press Enter. The same window is **AAGAM Manager** on the desktop.
+- **Start AAGAM when I sign in to Windows** (it waits quietly in the background), and
+- **Install updates by themselves** (when AAGAM is not in use),
+
+and one button for each job:
+
+| Button | What it does |
+|---|---|
+| **Open AAGAM** / **Stop AAGAM** | Starts AAGAM and opens it in your browser, or closes it. |
+| **Check for updates** / **Update now** | Asks GitHub for a new version, or puts it in place now. |
+| **Health check** | Checks everything AAGAM needs and says how to fix what's missing. |
+| **Repair** | Sets AAGAM up again from its own files. Your documents are kept. |
+| **Local AI** / **Claude Desktop** | Installs or repairs the local AI, or connects Claude Desktop. |
+| **Back up my data** / **Report for help** | A copy of your work in Documents, or a report to send for help. |
+| **Open data folder** / **Uninstall** | Opens your AAGAM folder, or removes AAGAM (your documents are kept unless you choose otherwise). |
+
+What each job is doing shows in the box below the buttons. For a numbered menu in a console instead, run `manage.cmd -Text` in the program folder.
 
 ---
 
@@ -186,7 +193,9 @@ Uninstalling removes the program, its shortcuts and its entry in Claude Desktop.
 |---|---|
 | "Windows protected your PC" | Click **More info**, then **Run anyway**. |
 | The installer stops with a download error | Check the internet connection and double-click **install.cmd** again. |
-| AAGAM doesn't open from the desktop | Start menu → **AAGAM Manager** → **3 Health check**, then **4 Repair** if it finds a problem. |
+| AAGAM doesn't open from the desktop | Start menu → **AAGAM Manager** → **Health check**, then **Repair** if it finds a problem. |
+| The window says **AAGAM is starting again…** | AAGAM is restarting, usually to put a new version in place. Wait a minute: the window comes back by itself. |
+| The window says **AAGAM has closed** | Open it again from the **AAGAM** shortcut, or **AAGAM Manager → Open AAGAM**. |
 | "The port is used by another program" | Close the other program, or restart the laptop. |
 | Scanned PDFs aren't searchable | Windows **Settings → Time & language → Language & region → English (India) → Language options → Optical character recognition → Download**. The health check tells you when this is needed. |
 | Claude Desktop doesn't show AAGAM | **Updates & health → Health → Claude Desktop → Fix**, then quit Claude Desktop from the tray and open it again. |
@@ -209,23 +218,19 @@ Uninstalling removes the program, its shortcuts and its entry in Claude Desktop.
 
 ## For the maintainer: publishing and shipping updates
 
-**First upload to GitHub**
+The repository is **github.com/Anekant-Singhai/AAGAM**. Laptops install and update from its **default branch** (now `master`), whatever it is called, so nothing needs changing if it is ever renamed to `main`. If the repository moves, change the one line `$DefaultRepo = ...` near the top of `scripts\install.ps1` and `DEFAULT_REPO` in `src\aagam\updates.py`, and the links in this README.
+
+**Shipping an update:** change the code, rebuild the interface if `frontend\` changed (`.venv\Scripts\aagam build-ui`; the built files in `src\aagam\web\static` are what laptops run, so they never need Node.js), raise `__version__` in `src\aagam\__init__.py` (that is the version Windows and the window show; `pyproject.toml` reads it from there), run the tests, commit and push to `master`:
 
 ```
 git add -A
-git commit -m "AAGAM 0.2.0"
-git branch -M main
-git remote add origin https://github.com/Anekant-Singhai/AAGAM.git
-git push -u origin main
+git commit -m "AAGAM 0.2.1: what changed"
+git push
 ```
 
-If the repository lives somewhere else, change the one line `$DefaultRepo = ...` near the top of `scripts\install.ps1`, and the links in this README, before pushing.
+GitHub runs the tests in `.github/workflows/test.yml` on that push. Laptops install whatever is on the default branch, so wait until the check is green. Laptops see the new commit within two hours, or straight away with **Check for updates**, and put it in place while AAGAM is not in use. Always raise the version: a laptop installed from a downloaded ZIP recognises the version it has by that number. Work on another branch until it is ready.
 
-**Shipping an update:** change the code, rebuild the interface if `frontend\` changed (`.venv\Scripts\aagam build-ui`; the built files in `src\aagam\web\static` are what laptops run, so they never need Node.js), raise `__version__` in `src\aagam\__init__.py` (that is the version Windows and the window show; `pyproject.toml` reads it from there), run the tests, commit and push to `main`.
-
-GitHub runs the tests in `.github/workflows/test.yml` on that push. Laptops install whatever is on `main`, so wait until the check is green. Laptops see the new commit within a few hours, at 8:00 if AAGAM is closed, or straight away with **Check for updates**. Work on another branch until it is ready.
-
-**If a bad version went out:** revert that commit on `main` and push. Each laptop also keeps the previous version and puts it back by itself if an update fails to start. **AAGAM Manager → Repair** reinstalls the program and keeps the data folder.
+**If a bad version went out:** revert that commit on `master` and push. Each laptop also keeps the previous version and puts it back by itself if an update fails to start. **AAGAM Manager → Repair** reinstalls the program and keeps the data folder.
 
 The built interface (`src\aagam\web\static`) is kept in the repository so laptops never need Node.js.
 

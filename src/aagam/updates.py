@@ -44,9 +44,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# The GitHub repository AAGAM is installed and updated from (scripts/install.ps1 has the same default).
+# The GitHub repository AAGAM is installed and updated from (scripts/install.ps1 has the same default). Its branch is
+# the repository's default one (GitHub says which) unless the install record names another.
 DEFAULT_REPO = "Anekant-Singhai/AAGAM"
-DEFAULT_BRANCH = "main"
+DEFAULT_BRANCH = "master"  # only when neither the record, git nor GitHub can say
 API = "https://api.github.com"
 # What an update replaces. Everything else in the app folder (.venv, .update, install.json) stays.
 CODE = ("src", "scripts", "docs", "pyproject.toml", "README.md", "START-HERE.txt", "install.cmd", "manage.cmd", "LICENSE")
@@ -65,9 +66,10 @@ _LOCK = threading.Lock()
 class UpdateError(Exception):
     """An update step that couldn't be done, in words she can act on."""
 
-    def __init__(self, message: str, needs_token: bool = False) -> None:
+    def __init__(self, message: str, needs_token: bool = False, status: int | None = None) -> None:
         super().__init__(message)
         self.needs_token = needs_token
+        self.status = status  # GitHub's answer, when it came from GitHub
 
 
 # ------------------------------------------------------------------ where things are
@@ -201,7 +203,7 @@ def branch_of(app: Path, how: str | None = None) -> str | None:
             return _git(app, "rev-parse", "--abbrev-ref", "HEAD", timeout=20)
         except UpdateError:
             return None
-    return DEFAULT_BRANCH if how == "archive" else None
+    return None  # an installed copy follows the repository's default branch (found at the next check)
 
 
 def info(app: Path, home: Path) -> dict[str, Any]:
@@ -219,6 +221,7 @@ def info(app: Path, home: Path) -> dict[str, Any]:
         "repo": repo_of(app, how),
         "branch": branch_of(app, how),
         "has_token": token_path(app).is_file(),
+        "autostart": autostart(app),
         "updates": state(app),
     }
 
@@ -350,14 +353,18 @@ class GitHub:
         if status == 404:
             if self.token:
                 return UpdateError(f"GitHub can't find {self.repo} with this update key: check the repository's name and the "
-                                   "key's access to it.", needs_token=True)
+                                   "key's access to it.", needs_token=True, status=404)
             return UpdateError(f"GitHub can't find {self.repo}. If the repository is private, AAGAM needs an update key "
-                               "(a read-only GitHub token).", needs_token=True)
+                               "(a read-only GitHub token).", needs_token=True, status=404)
         return UpdateError(f"GitHub answered {status}{': ' + message if message else ''}.")
 
     def head(self, branch: str) -> dict[str, Any]:
         data = self.get(f"/repos/{self.repo}/commits/{branch}")
         return _commit(data)
+
+    def default_branch(self) -> str:
+        """The repository's main branch ("master" or "main"), as GitHub has it."""
+        return str(self.get(f"/repos/{self.repo}").get("default_branch") or DEFAULT_BRANCH)
 
     def changes(self, base: str, head: str) -> list[dict[str, Any]]:
         data = self.get(f"/repos/{self.repo}/compare/{base}...{head}")
@@ -413,8 +420,30 @@ def _same(a: str | None, b: str | None) -> bool:
 def _check_archive(app: Path, fetch: Fetch | None) -> dict[str, Any]:
     record = read_record(app)
     github = GitHub(record["repo"], load_token(app), fetch)
-    latest = github.head(record.get("branch") or DEFAULT_BRANCH)
+    branch = record.get("branch") or github.default_branch()
+    try:
+        latest = github.head(branch)
+    except UpdateError as missing:
+        # The branch it was installed from isn't there (an installer that assumed "main" for a "master" repository,
+        # or a renamed branch): follow the repository's default branch, if it has another one.
+        if not record.get("branch") or missing.status != 404:
+            raise
+        try:
+            fallback = github.default_branch()
+        except UpdateError:
+            raise missing from None
+        if fallback == branch:
+            raise
+        branch, latest = fallback, github.head(fallback)
+    if branch != record.get("branch"):
+        write_record(app, branch=branch)
     installed = record.get("commit")
+    latest_version = github.version_at(latest["commit"])
+    if not installed and latest_version and _not_older(version_of(app), latest_version):
+        # Installed from a downloaded ZIP, which doesn't say its commit: the same version as GitHub's newest is taken
+        # to be that version, rather than updating AAGAM to itself straight after installing.
+        write_record(app, commit=latest["commit"])
+        installed = latest["commit"]
     if _same(installed, latest["commit"]):
         changes: list[dict[str, Any]] = []
     elif installed:
@@ -424,9 +453,21 @@ def _check_archive(app: Path, fetch: Fetch | None) -> dict[str, Any]:
             changes = [latest]  # her commit isn't on GitHub any more: the latest is still the one to have
         changes = changes or [latest]
     else:
-        changes = [latest]  # this copy's commit wasn't recorded: bring it to a known one
-    latest_out = {"commit": latest["commit"], "date": latest["date"], "version": github.version_at(latest["commit"])}
+        changes = [latest]  # this copy's commit wasn't recorded and its version differs: bring it to a known one
+    latest_out = {"commit": latest["commit"], "date": latest["date"], "version": latest_version}
     return {"available": bool(changes), "latest": latest_out, "changes": changes}
+
+
+def _not_older(mine: str | None, theirs: str) -> bool:
+    """True when this copy's version is the same as GitHub's newest, or newer (never "update" back to an older one)."""
+    def parts(version: str) -> tuple[int, ...] | None:
+        numbers = re.findall(r"\d+", version)
+        return tuple(int(n) for n in numbers) if numbers else None
+
+    if not mine:
+        return False
+    a, b = parts(mine), parts(theirs)
+    return mine == theirs if a is None or b is None else a >= b
 
 
 def _check_git(app: Path) -> dict[str, Any]:
@@ -629,12 +670,24 @@ def _ps_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def system_changes_allowed() -> bool:
+    """False while the tests run (tests/conftest.py sets AAGAM_NO_SYSTEM_CHANGES): nothing here may then add a scheduled
+    task, a start-up entry or a registry value to the computer running them."""
+    return os.environ.get("AAGAM_NO_SYSTEM_CHANGES") != "1"
+
+
+def _own_pythonw(app: Path) -> Path | None:
+    """This copy's own windowless Python, never the one running this code (a test's, or a developer's)."""
+    candidate = app / ".venv" / "Scripts" / "pythonw.exe"
+    return candidate if sys.platform == "win32" and candidate.is_file() else None
+
+
 def note_installed_version(app: Path) -> None:
     """Windows Settings > Apps shows the version after an update, when this folder is the one that was installed.
 
     A test's temporary copy does not match that folder, so it never writes the registry.
     """
-    if sys.platform != "win32" or mode(app) != "archive":
+    if sys.platform != "win32" or mode(app) != "archive" or not system_changes_allowed():
         return
     version = version_of(app)
     if not version:
@@ -663,13 +716,11 @@ def note_installed_version(app: Path) -> None:
 def register_daily_update(app: Path) -> str | None:
     """On Windows, a daily 08:00 task that installs a GitHub update when AAGAM is closed.
 
-    None when it was added, or when this copy shouldn't have one (not Windows, a git checkout, no Python yet).
-    A sentence when it was tried and failed. Never raises: a failed task must not fail an update.
+    None when it was added, or when this copy shouldn't have one (not Windows, a git checkout, no Python of its own
+    yet, or the tests). A sentence when it was tried and failed. Never raises: a failed task must not fail an update.
     """
-    if sys.platform != "win32" or mode(app) != "archive":
-        return None
-    pythonw = venv_python(app, windowless=True)
-    if not pythonw.is_file():
+    pythonw = _own_pythonw(app)
+    if pythonw is None or mode(app) != "archive" or not system_changes_allowed():
         return None
     script = "\n".join([
         f"$action = New-ScheduledTaskAction -Execute {_ps_quote(str(pythonw))} -Argument '-m aagam update --apply-if-idle' -WorkingDirectory {_ps_quote(str(app))}",
@@ -685,6 +736,54 @@ def register_daily_update(app: Path) -> str | None:
         return str(exc)
     if done.returncode != 0:
         return (done.stderr or done.stdout or "could not add the daily check").strip()
+    return None
+
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_VALUE = "AAGAM"
+
+
+def _run_command(pythonw: Path) -> str:
+    return f'"{pythonw}" -m aagam serve'
+
+
+def autostart(app: Path) -> bool:
+    """Whether AAGAM starts in the background when she signs in to Windows (from this copy)."""
+    pythonw = _own_pythonw(app)
+    if pythonw is None:
+        return False
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, RUN_VALUE)
+    except OSError:
+        return False
+    return str(value).lower().startswith(f'"{str(pythonw).lower()}"')
+
+
+def set_autostart(app: Path, on: bool) -> str | None:
+    """Start AAGAM's server (no window, no browser) when she signs in to Windows, or stop doing so. Windows lists it
+    in Task Manager > Startup apps. None when done (or nothing to do: not Windows, no Python of its own, the tests);
+    else a sentence saying why not."""
+    pythonw = _own_pythonw(app)
+    if pythonw is None or not system_changes_allowed():
+        return None
+    try:
+        import winreg
+
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            if on:
+                winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, _run_command(pythonw))
+            else:
+                try:
+                    current, _ = winreg.QueryValueEx(key, RUN_VALUE)
+                except OSError:
+                    return None
+                if str(current).lower().startswith(f'"{str(pythonw).lower()}"'):  # another copy's entry is its own
+                    winreg.DeleteValue(key, RUN_VALUE)
+    except OSError as exc:
+        return f"Windows didn't allow it ({exc})."
     return None
 
 
@@ -1024,8 +1123,9 @@ def launch_apply(app: Path, home: Path, port: int, open_browser: bool = False) -
 # ------------------------------------------------------------------ Claude Desktop, when AAGAM is removed
 
 
-def remove_claude_entry(paths: list[Path]) -> list[str]:
-    """Take AAGAM out of each Claude Desktop config (each backed up first). Returns the files changed."""
+def remove_claude_entry(paths: list[Path], app: Path | None = None) -> list[str]:
+    """Take AAGAM out of each Claude Desktop config (each backed up first). Returns the files changed. With `app`, only
+    an entry that starts this copy's Python goes: another copy's entry (a developer's, say) is its own business."""
     changed = []
     for path in paths:
         if not path.is_file():
@@ -1037,6 +1137,9 @@ def remove_claude_entry(paths: list[Path]) -> list[str]:
             continue
         servers = data.get("mcpServers") if isinstance(data, dict) else None
         if not isinstance(servers, dict) or "aagam" not in servers:
+            continue
+        command = str((servers["aagam"] or {}).get("command", "")) if isinstance(servers["aagam"], dict) else ""
+        if app is not None and not command.lower().startswith(str(app.resolve()).lower()):
             continue
         path.with_name(f"{path.name}.{datetime.now():%Y%m%d-%H%M%S}.bak").write_text(text, encoding="utf-8")
         del servers["aagam"]
@@ -1067,7 +1170,25 @@ def main(argv: list[str] | None = None) -> int:
     record.add_argument("--auto-update", choices=("on", "off"))
     unclaude = commands.add_parser("claude-remove", help="take AAGAM out of Claude Desktop's config")
     unclaude.add_argument("paths", nargs="*", type=Path)
+    unclaude.add_argument("--app", type=Path, help="only the entry that starts this copy")
+    start = commands.add_parser("autostart", help="start AAGAM in the background when she signs in to Windows")
+    start.add_argument("--app", type=Path)
+    start.add_argument("state", choices=("on", "off", "status"))
+    start.add_argument("--once", action="store_true",
+                       help="only if this copy has never had it set (the installer: a reinstall keeps her choice)")
     args = parser.parse_args(argv)
+
+    if args.command == "autostart":
+        app = args.app or app_folder()
+        if args.state != "status" and not (args.once and read_record(app).get("autostart_offered")):
+            problem = set_autostart(app, args.state == "on")
+            if problem:
+                print(problem, file=sys.stderr)
+                return 1
+            if args.once:
+                write_record(app, autostart_offered=True)
+        print("on" if autostart(app) else "off")
+        return 0
 
     if args.command == "apply":
         home = args.home or Path(os.environ.get("AAGAM_HOME") or Path.home() / "AAGAM")
@@ -1097,7 +1218,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(write_record(app, **changes), indent=2))
         return 0
     if args.command == "claude-remove":
-        for changed in remove_claude_entry(args.paths):
+        for changed in remove_claude_entry(args.paths, args.app):
             print(f"Took AAGAM out of {changed}")
         return 0
     return 2

@@ -8,6 +8,7 @@ Manager and the System page's Repair buttons.
   setup-windows.cmd -DesktopShortcut    also put AAGAM, AAGAM Manager and CS Desk browser on the desktop and in the Start menu
   setup-windows.cmd -LocalAI            also install the local AI (Ollama) and download its model (-Model qwen3:4b)
   setup-windows.cmd -RepairOnly ...     only the extras named, nothing else (the Repair buttons use this)
+  -FromInstaller                        install.ps1 runs the health check itself, once everything is in place
 
 Nothing needs to be installed first: a missing Python is installed for this user from python.org
 (-NoPythonInstall stops that). Client data goes to %USERPROFILE%\AAGAM unless AAGAM_HOME is set. The
@@ -20,6 +21,7 @@ param(
     [switch]$LocalAI,
     [switch]$RepairOnly,
     [switch]$NoPythonInstall,
+    [switch]$FromInstaller,
     [string]$Model = 'qwen3:4b'
 )
 $ErrorActionPreference = 'Stop'
@@ -168,7 +170,7 @@ function Install-LocalAI {
     $env:AAGAM_LOCAL_AI_MODEL = $Model
 }
 
-function New-Shortcut([string]$Path, [string]$Target, [string]$Arguments, [string]$Description, [int]$WindowStyle = 1) {
+function New-Shortcut([string]$Path, [string]$Target, [string]$Arguments, [string]$Description, [int]$WindowStyle = 1, [string]$Icon = '') {
     $shell = New-Object -ComObject WScript.Shell
     $link = $shell.CreateShortcut($Path)
     $link.TargetPath = $Target
@@ -176,6 +178,7 @@ function New-Shortcut([string]$Path, [string]$Target, [string]$Arguments, [strin
     $link.WorkingDirectory = $root
     $link.Description = $Description
     $link.WindowStyle = $WindowStyle
+    if ($Icon) { $link.IconLocation = $Icon }
     $link.Save()
 }
 
@@ -183,11 +186,16 @@ function Add-Shortcuts {
     $desktop = [Environment]::GetFolderPath('Desktop')
     $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'AAGAM'
     New-Item -ItemType Directory -Force $menu | Out-Null
-    $manager = Join-Path $root 'manage.cmd'
+    $manager = Join-Path $root 'scripts\manager.ps1'
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     foreach ($folder in $desktop, $menu) {
-        New-Shortcut (Join-Path $folder 'AAGAM.lnk') $pythonw '-m aagam' 'Open AAGAM'
+        New-Shortcut (Join-Path $folder 'AAGAM.lnk') $pythonw '-m aagam' 'Open AAGAM in your browser'
         New-Shortcut (Join-Path $folder 'CS Desk browser.lnk') $csdesk 'browser' 'Open the CS Desk browser window and log in to MCA' 7
-        if (Test-Path $manager) { New-Shortcut (Join-Path $folder 'AAGAM Manager.lnk') $manager '' 'Update, check, repair or remove AAGAM' }
+        if (Test-Path $manager) {
+            # The Manager is a window of its own; its PowerShell starts minimised and hidden, so no console flashes up.
+            New-Shortcut (Join-Path $folder 'AAGAM Manager.lnk') $powershell "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$manager`"" `
+                'Open, update, check, repair or remove AAGAM' 7 "$powershell,0"
+        }
     }
     Write-Host 'Added AAGAM, AAGAM Manager and CS Desk browser to the desktop and the Start menu.'
 }
@@ -253,6 +261,8 @@ if ($DesktopShortcut) {
 }
 
 # ------------------------------------------------------------------ checking
+
+if ($FromInstaller) { exit 0 }  # install.ps1 checks once the install record and the start at sign-in are in place too
 
 Write-Step 'Checking this computer (aagam doctor)'
 Invoke-Program { & $aagam doctor }

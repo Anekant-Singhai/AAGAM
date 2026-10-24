@@ -2,7 +2,7 @@
 
 AAGAM is a Company Secretary's workbench that runs on her own laptop. It holds her documents and her clients' records, reads what comes in, finds things, works out dates and limits, drafts, and fills MCA forms up to the point where she signs. This page maps the whole of a CS's work to the parts of AAGAM, shows what is built, and sets out what comes next.
 
-**Status on 18 October 2026:** built and tested (255 tests). The tests include three real listed-company AGM notices, a real set of scanned audited statements (J. Kumar-NCC), the real local model, and the interface in a browser. `scripts\setup-windows.cmd` has been run on a clean copy and ends with `aagam doctor` passing. CS Desk, built earlier, is now AAGAM's core (`src/csdesk`). [CSDESK.md](CSDESK.md) covers its parts in detail.
+**Status on 24 October 2026 (0.2.1):** built and tested (360 tests). The tests include three real listed-company AGM notices, a real set of scanned audited statements (J. Kumar-NCC), the real local model, and the interface in a browser. Since 0.1: folders brought in whole (and watched), the library by date, folder and client, the Trash, LLPs, and the installer, update manager and AAGAM Manager. `install.cmd` has been run on a clean copy and ends with `aagam doctor` passing; the installed copy starts without a console (as the shortcut and sign-in start it), updates from GitHub's default branch, and uninstalls leaving the data folder. CS Desk, built earlier, is now AAGAM's core (`src/csdesk`). [CSDESK.md](CSDESK.md) covers its parts in detail.
 
 ## How AAGAM works with her
 
@@ -106,13 +106,16 @@ Artemis was a ten-service Docker stack (Postgres, Redis, Meilisearch, Neo4j, Min
 
 ## Running it
 
-Her laptop: `scripts\setup-windows.cmd -ConfigureClaude -DesktopShortcut -LocalAI`. This needs Python 3.11+, plus Ollama from ollama.com for the local AI. She then opens **AAGAM** from the desktop shortcut.
+Her laptop: `install.cmd` (see the README). It installs Python if there is none, AAGAM in `%LOCALAPPDATA%\Programs\AAGAM`, the local AI, the Claude Desktop entry, shortcuts (AAGAM, AAGAM Manager, CS Desk browser), the start at sign-in (`HKCU\...\Run`, `pythonw -m aagam serve`), the Settings > Apps entry and a daily update check, and ends with `aagam doctor`. She then opens **AAGAM** from the desktop shortcut; **AAGAM Manager** (`scripts\manager.ps1`, a WinForms window that needs no Python) opens, stops, updates, checks, repairs, backs up or removes it.
+
+Anything started by pythonw (the shortcut, the start at sign-in) has no console: `aagam` points its output at `logs\aagam-console.log` first thing, so a library that prints (uvicorn's logging asks `isatty()`) can't stop it, and a failure leaves its reason there.
 
 | Command | What it does |
 |---|---|
-| `aagam` | Opens AAGAM (starts the server if needed) |
+| `aagam` | Opens AAGAM (starts the server if needed; a small "Opening AAGAM…" window shows if that takes more than a few seconds) |
 | `aagam serve` / `aagam mcp` | The web server; the Claude Desktop server |
-| `aagam add FILE... [--company X] [--tag precedent]` | Brings files in from a terminal |
+| `aagam add FILE-OR-FOLDER... [--company X] [--tag precedent] [--watch]` | Brings files, or folders with everything in them, in from a terminal |
+| `aagam update [--apply]`, `aagam version`, `aagam backup`, `aagam support`, `aagam uninstall` | Updates, this copy's version, a backup, a report for help, removing AAGAM |
 | `aagam reindex` | Re-reads every document (after a rule improves) |
 | `aagam doctor` | Checks the installation: Python, data folder, database, interface, port, OCR, Chrome/Edge, Ollama, Claude Desktop, disk space; each problem with its fix |
 | `aagam ai` | Runs queued local-AI summaries now |

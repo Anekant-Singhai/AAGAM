@@ -126,6 +126,7 @@ export interface SystemInfo {
   data_folder: string | null;
   mode: "archive" | "git" | "none";
   auto_update: boolean;
+  autostart?: boolean; // starts in the background when she signs in to Windows (an older AAGAM doesn't say)
   repo: string | null;
   branch: string | null;
   has_token: boolean;

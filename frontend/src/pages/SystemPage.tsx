@@ -148,7 +148,15 @@ function Updates({ info, onUpdate }: { info: SystemInfo; onUpdate: () => void })
   const setAuto = async (on: boolean) => {
     try {
       queryClient.setQueryData(["system"], await aagam.updateSettings({ auto_update: on }));
-      toast.success(on ? "AAGAM will put new versions in place by itself when it starts." : "AAGAM will ask before it updates.");
+      toast.success(on ? "New versions will be put in place by themselves while AAGAM isn't in use." : "AAGAM will wait for you to press Update now.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  const setStart = async (on: boolean) => {
+    try {
+      queryClient.setQueryData(["system"], await aagam.updateSettings({ autostart: on }));
+      toast.success(on ? "AAGAM will start in the background when you sign in to Windows." : "AAGAM will start only when you open it.");
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -219,23 +227,35 @@ function Updates({ info, onUpdate }: { info: SystemInfo; onUpdate: () => void })
           )}
         </div>
       )}
-      {info.mode !== "none" && (
-        <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
-          <span className={clsx("w-9 h-5 rounded-full relative transition-colors shrink-0", info.auto_update ? "bg-accent-brand" : "bg-bg-border")}>
-            <span className={clsx("absolute top-[3px] w-[14px] h-[14px] rounded-full bg-bg-surface shadow transition-all", info.auto_update ? "left-[19px]" : "left-[3px]")} />
-          </span>
-          <input type="checkbox" className="sr-only" checked={info.auto_update} onChange={(e) => setAuto(e.target.checked)} />
-          <span>
-            <span className="block font-medium">Install updates by themselves</span>
-            <span className="block text-xs text-text-muted">When AAGAM starts and a new version is ready, it is put in place straight away.</span>
-          </span>
-        </label>
+      {info.mode === "archive" && (
+        <Switch on={info.auto_update} onChange={setAuto} label="Install updates by themselves"
+          hint="A new version is put in place once AAGAM has been left alone for 20 minutes, never while you are working. Until then, Update now does it." />
+      )}
+      {info.autostart !== undefined && info.mode !== "git" && (
+        <Switch on={Boolean(info.autostart)} onChange={setStart} label="Start AAGAM when I sign in to Windows"
+          hint="It waits quietly in the background, so it opens at once and keeps reading watched folders. Windows lists it in Task Manager, Startup apps." />
       )}
       <button className="mt-4 text-xs text-text-muted hover:text-text-primary flex items-center gap-1" onClick={() => setAdvanced(!advanced)} aria-expanded={advanced}>
         <ChevronDown size={13} className={clsx("transition-transform", advanced && "rotate-180")} /> More settings
       </button>
       {advanced && <Advanced info={info} />}
     </Card>
+  );
+}
+
+/** An on/off setting, said in words beside it. */
+function Switch({ on, onChange, label, hint }: { on: boolean; onChange: (on: boolean) => void; label: string; hint: string }) {
+  return (
+    <label className="flex items-center gap-3 text-sm cursor-pointer select-none mt-3">
+      <span className={clsx("w-9 h-5 rounded-full relative transition-colors shrink-0", on ? "bg-accent-brand" : "bg-bg-border")}>
+        <span className={clsx("absolute top-[3px] w-[14px] h-[14px] rounded-full bg-bg-surface shadow transition-all", on ? "left-[19px]" : "left-[3px]")} />
+      </span>
+      <input type="checkbox" className="sr-only" checked={on} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        <span className="block font-medium">{label} <span className="text-xs font-normal text-text-muted">({on ? "on" : "off"})</span></span>
+        <span className="block text-xs text-text-muted">{hint}</span>
+      </span>
+    </label>
   );
 }
 

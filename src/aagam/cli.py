@@ -5,7 +5,7 @@
     aagam mcp              run the MCP server over stdio (Claude Desktop starts this)
     aagam init             set up the data folder and print the Claude Desktop entry
     aagam claude-config    print it, or --write it into Claude Desktop's config (with a backup)
-    aagam add FILE...      bring files into the library from a terminal
+    aagam add PATH...      bring files, or folders with everything in them, into the library from a terminal
     aagam reindex          rebuild facts, resolutions and tags for every document
     aagam ai               run queued local-AI summaries now
     aagam build-ui         build the web interface from frontend/ (needs Node.js; developers only)
@@ -41,7 +41,26 @@ from .config import AagamSettings, claude_desktop_config_paths, load
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _without_a_console() -> None:
+    """The desktop shortcut and the start at sign-in run AAGAM with pythonw, which has no console: sys.stdout and
+    sys.stderr are None, and anything that prints or asks isatty() (uvicorn's logging does) then stops AAGAM before
+    it has written a word. They write to logs/aagam-console.log instead, so a failure leaves its reason there."""
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    try:
+        logs = load().core.logs_dir
+        logs.mkdir(parents=True, exist_ok=True)
+        stream = open(logs / "aagam-console.log", "a", encoding="utf-8", errors="replace", buffering=1)  # noqa: SIM115 - for the life of the process
+    except OSError:
+        stream = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+
+
 def main(argv: list[str] | None = None) -> int:
+    _without_a_console()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
     parser = argparse.ArgumentParser(prog="aagam", description="AAGAM: a Company Secretary's workbench.")
@@ -73,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     update.add_argument("--clear-token", action="store_true", help="forget the stored token")
     update.add_argument("--auto", choices=("on", "off"), help="install updates by itself when AAGAM is idle")
     update.add_argument("--repo", help="the GitHub repository to update from, owner/name")
-    update.add_argument("--branch", help="its branch (main)")
+    update.add_argument("--branch", help="its branch (normally the repository's default one)")
     uninstall = commands.add_parser("uninstall", help="remove AAGAM from this computer (Windows)")
     uninstall.add_argument("--remove-data", action="store_true", help="also delete the data folder: every document and record")
     uninstall.add_argument("--confirm", default="", help='with --remove-data: type REMOVE to say you mean it')
@@ -91,27 +110,116 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
+# The first start after installing or updating can take a minute while Windows checks the new files.
+START_TIMEOUT = 150
+
+
 def _open(settings: AagamSettings, args: argparse.Namespace) -> int:
     from .web.app import wait_until_up
 
     url = f"http://127.0.0.1:{settings.web_port}/"
     if not wait_until_up(settings.web_port, timeout=0.5):
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        log = (settings.core.logs_dir / "aagam-web.log")
+        log = settings.core.logs_dir / "aagam-web.log"
         settings.core.ensure_dirs()
-        with log.open("ab") as out:
-            subprocess.Popen([sys.executable, "-m", "aagam", "serve"], stdin=subprocess.DEVNULL, stdout=out, stderr=out, creationflags=flags, close_fds=True)
-        if not wait_until_up(settings.web_port, timeout=30):
+        if _claim_start(settings):
+            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            with log.open("ab") as out:
+                subprocess.Popen([sys.executable, "-m", "aagam", "serve"], stdin=subprocess.DEVNULL, stdout=out, stderr=out,
+                                 creationflags=flags, close_fds=True)
+        # else: another double-click (or the start at sign-in) is starting it already; wait for that one
+        if not _wait_while_showing(settings.web_port, START_TIMEOUT):
             _tell(
                 "AAGAM didn't open.\n\n"
                 "Press the Windows key, type AAGAM Manager, and press Enter. "
-                "Choose 4 (Health check), then 5 (Repair) if it finds a problem. Your documents are kept.\n\n"
-                f"Details are in:\n{log}"
+                "Choose Health check, then Repair if it finds a problem. Your documents are kept.\n\n"
+                f"Details are in:\n{log}\n{settings.core.logs_dir / 'aagam-console.log'}"
             )
             return 1
     webbrowser.open(url)
     print(f"AAGAM is open at {url}")
     return 0
+
+
+def _claim_start(settings: AagamSettings) -> bool:
+    """True when this call should start the server; False when another start began less than START_TIMEOUT ago."""
+    import time
+
+    marker = settings.core.logs_dir / "aagam-starting"
+    try:
+        if marker.exists() and time.time() - marker.stat().st_mtime < START_TIMEOUT:
+            return False
+        marker.write_text(str(os.getpid()), encoding="utf-8")
+    except OSError:
+        pass
+    return True
+
+
+def _wait_while_showing(port: int, timeout: float) -> bool:
+    """Wait for the server; after a few seconds, show a small "Opening AAGAM…" window, since pythonw has none of its own
+    and a slow first start would otherwise look like nothing happening. True once AAGAM answers."""
+    import time
+    import urllib.request
+
+    from .web.app import wait_until_up
+
+    if wait_until_up(port, timeout=4):
+        return True
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception:  # noqa: BLE001 - no Tk in this Python: just wait
+        return wait_until_up(port, timeout=timeout)
+
+    deadline = time.monotonic() + timeout
+    answered = {"up": False, "closed": False}
+
+    def up() -> bool:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=0.4):
+                return True
+        except OSError:
+            return False
+
+    try:
+        window = tk.Tk()
+    except Exception:  # noqa: BLE001 - no display
+        return wait_until_up(port, timeout=timeout)
+    window.title("AAGAM")
+    window.resizable(False, False)
+    window.attributes("-topmost", True)
+    frame = ttk.Frame(window, padding=22)
+    frame.pack()
+    ttk.Label(frame, text="Opening AAGAM…", font=("Segoe UI", 13, "bold")).pack(anchor="w")
+    ttk.Label(frame, text="The first start after installing or updating can take up to a minute.\nIt opens in your browser by itself.",
+              font=("Segoe UI", 10), justify="left").pack(anchor="w", pady=(6, 12))
+    bar = ttk.Progressbar(frame, mode="indeterminate", length=340)
+    bar.pack(fill="x")
+    bar.start(12)
+    window.update_idletasks()
+    x = (window.winfo_screenwidth() - window.winfo_width()) // 2
+    y = (window.winfo_screenheight() - window.winfo_height()) // 3
+    window.geometry(f"+{x}+{y}")
+
+    def poll() -> None:
+        if up():
+            answered["up"] = True
+            window.destroy()
+        elif time.monotonic() > deadline:
+            window.destroy()
+        else:
+            window.after(700, poll)
+
+    def close() -> None:
+        answered["closed"] = True  # closing the window doesn't stop AAGAM starting: it still opens when ready
+        window.destroy()
+
+    window.after(300, poll)
+    window.protocol("WM_DELETE_WINDOW", close)
+    window.mainloop()
+    if answered["up"]:
+        return True
+    left = deadline - time.monotonic()
+    return wait_until_up(port, timeout=left) if answered["closed"] and left > 0 else up()
 
 
 def _serve(settings: AagamSettings, args: argparse.Namespace) -> int:
@@ -299,7 +407,8 @@ def _version(settings: AagamSettings, args: argparse.Namespace) -> int:
     print(f"Data folder:    {about['data_folder']}")
     if about["mode"] == "archive":
         auto = "installed by themselves when AAGAM is idle" if about["auto_update"] else "installed when you choose"
-        print(f"Updates:        from github.com/{about['repo']} ({about['branch']}), {auto}")
+        print(f"Updates:        from github.com/{about['repo']} ({about['branch'] or 'its default branch'}), {auto}")
+        print(f"Start at sign-in: {'on' if about.get('autostart') else 'off'}")
     elif about["mode"] == "git":
         print(f"Updates:        a developer's git checkout of {about['repo'] or 'a repository'}: `aagam update --apply` pulls")
     else:

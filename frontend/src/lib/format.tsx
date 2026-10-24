@@ -50,8 +50,12 @@ export function byWhom(by: string | null): string {
   return by;
 }
 
+// Words that are always written in capitals: "llp_agreement" reads "LLP agreement", "moa" reads "MOA".
+const CAPITALS = new Set(["llp", "moa", "aoa", "mca", "dir2", "dir8", "mbp1", "pan", "kmp", "agm", "egm", "srn", "ctc", "gst", "cin", "din"]);
+
 export function titleCase(slug: string): string {
-  return slug.replace(/[-_]/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+  const words = slug.replace(/[-_]/g, " ").split(" ").map((w) => (CAPITALS.has(w.toLowerCase()) ? w.toUpperCase() : w));
+  return words.join(" ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
 /** A figure from the statements in their own unit (lakhs, crore…), brackets for negatives as accountants write them. */

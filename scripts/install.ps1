@@ -2,12 +2,12 @@
 Installs AAGAM on this computer, with everything it needs. Double-click install.cmd in the AAGAM folder, or
 paste this into PowerShell (for a public repository):
 
-    irm https://raw.githubusercontent.com/Anekant-Singhai/AAGAM/main/scripts/install.ps1 | iex
+    irm https://raw.githubusercontent.com/Anekant-Singhai/AAGAM/HEAD/scripts/install.ps1 | iex
 
 It puts AAGAM in %LOCALAPPDATA%\Programs\AAGAM (no administrator rights needed), installs Python for this user
 if there is none, sets AAGAM up, installs the local AI (Ollama and its model, a few GB, once), adds AAGAM to
-Claude Desktop, puts shortcuts on the desktop and in the Start menu, adds AAGAM to Settings > Apps (so it can be
-removed like any program) and ends with a health check. Running it again repairs or refreshes an installation.
+Claude Desktop, puts shortcuts on the desktop and in the Start menu, starts AAGAM in the background when you sign in
+to Windows, adds AAGAM to Settings > Apps (so it can be removed like any program) and ends with a health check. Running it again repairs or refreshes an installation.
 Client data, in %USERPROFILE%\AAGAM, is never touched.
 
   -InstallDir <folder>   install somewhere else
@@ -15,9 +15,11 @@ Client data, in %USERPROFILE%\AAGAM, is never touched.
   -NoClaude              don't add AAGAM to Claude Desktop
   -NoShortcuts           no desktop or Start menu shortcuts
   -NoRegister            don't add AAGAM to Settings > Apps
+  -NoAutostart           don't start AAGAM in the background when you sign in to Windows
+  -NoSchedule            don't add the daily 8:00 update check
   -Model <name>          the local AI model (qwen3:4b; qwen3:8b with a graphics card)
   -Repo <owner/name>     the GitHub repository AAGAM comes from and updates from
-  -Branch <name>         its branch (main)
+  -Branch <name>         its branch (normally left out: the repository's default branch)
   -NoOpen                don't open AAGAM in the browser at the end
 
 A record of the installation is kept in %TEMP%\aagam-install.log.
@@ -29,9 +31,11 @@ param(
     [switch]$NoClaude,
     [switch]$NoShortcuts,
     [switch]$NoRegister,
+    [switch]$NoAutostart,
+    [switch]$NoSchedule,
     [string]$Model = 'qwen3:4b',
     [string]$Repo = '',
-    [string]$Branch = 'main',
+    [string]$Branch = '',
     [switch]$NoOpen
 )
 
@@ -65,17 +69,31 @@ function Get-File([string]$Url, [string]$OutFile) {
     }
 }
 
+function Get-DefaultBranch([string]$Repo) {
+    # The repository's own main branch ("master" or "main"), so nothing here has to guess it.
+    try {
+        $about = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo" -TimeoutSec 30 `
+            -Headers @{ 'User-Agent' = 'AAGAM-installer'; 'Accept' = 'application/vnd.github+json' }
+        if ($about.default_branch) { return [string]$about.default_branch }
+    } catch { }
+    return ''
+}
+
 function Get-FromGitHub([string]$Repo, [string]$Branch) {
     # Download the branch's newest version; the commit is asked for first so the download is exactly that one.
     $work = Join-Path $env:TEMP ('aagam-download-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Force $work | Out-Null
     $commit = $null
+    if (-not $Branch) { $Branch = Get-DefaultBranch $Repo }
+    if (-not $Branch) { $Branch = 'HEAD' }  # GitHub's name for the default branch, when its API can't be asked
     try {
         $head = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/commits/$Branch" -TimeoutSec 30 `
             -Headers @{ 'User-Agent' = 'AAGAM-installer'; 'Accept' = 'application/vnd.github+json' }
         $commit = $head.sha
     } catch { $commit = $null }
-    if ($commit) { $url = "https://github.com/$Repo/archive/$commit.zip" } else { $url = "https://github.com/$Repo/archive/refs/heads/$Branch.zip" }
+    if ($commit) { $url = "https://github.com/$Repo/archive/$commit.zip" }
+    elseif ($Branch -eq 'HEAD') { $url = "https://github.com/$Repo/archive/HEAD.zip" }
+    else { $url = "https://github.com/$Repo/archive/refs/heads/$Branch.zip" }
     $zip = Join-Path $work 'aagam.zip'
     Write-Step "Downloading AAGAM from github.com/$Repo"
     try {
@@ -88,7 +106,7 @@ function Get-FromGitHub([string]$Repo, [string]$Branch) {
     Expand-Archive -Path $zip -DestinationPath $work -Force
     $folder = Get-ChildItem $work -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pyproject.toml') } | Select-Object -First 1
     if (-not $folder) { throw 'The download does not look like AAGAM (it has no pyproject.toml).' }
-    return @{ Path = $folder.FullName; Commit = $commit; Source = 'download'; Work = $work }
+    return @{ Path = $folder.FullName; Commit = $commit; Source = 'download'; Work = $work; Branch = $(if ($Branch -ne 'HEAD') { $Branch } else { '' }) }
 }
 
 function Copy-Parts([string]$From, [string]$To) {
@@ -160,7 +178,7 @@ try {
         if (Test-Path (Join-Path $candidate 'src\aagam\__init__.py')) { $here = $candidate }
     }
     if ($here) {
-        $origin = @{ Path = $here; Commit = $null; Source = 'zip'; Work = $null }
+        $origin = @{ Path = $here; Commit = $null; Source = 'zip'; Work = $null; Branch = $Branch }
         if ((Test-Path (Join-Path $here '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
             $commit = Invoke-Program { git -C $here rev-parse HEAD 2>$null }
             if ($LASTEXITCODE -eq 0 -and $commit) { $origin.Commit = "$commit".Trim(); $origin.Source = 'git' }
@@ -178,28 +196,41 @@ try {
         Copy-Parts $origin.Path $InstallDir
     }
 
-    # Python, AAGAM's environment, the data folder and the extras.
-    $setupArgs = @{}
+    # Python, AAGAM's environment, the data folder and the extras. The health check comes last, below.
+    $firstInstall = -not (Test-Path (Join-Path $InstallDir 'install.json'))
+    $setupArgs = @{ FromInstaller = $true }
     if (-not $NoShortcuts) { $setupArgs.DesktopShortcut = $true }
     if (-not $NoClaude) { $setupArgs.ConfigureClaude = $true }
     if (-not $NoLocalAI) { $setupArgs.LocalAI = $true; $setupArgs.Model = $Model }
     & (Join-Path $InstallDir 'scripts\setup-windows.ps1') @setupArgs
 
-    # The record the updater works from: where this copy came from and which version it is.
+    # Compile AAGAM's code now, so its first start is quick rather than waiting on Python (and Windows' virus check).
     $python = Join-Path $InstallDir '.venv\Scripts\python.exe'
-    $record = @('-m', 'aagam.updates', 'record', '--app', $InstallDir, '--repo', $Repo, '--branch', $Branch, '--source', $origin.Source)
+    Invoke-Program { & $python -m compileall -q -j 0 (Join-Path $InstallDir 'src') | Out-Null }
+
+    # The record the updater works from: where this copy came from and which version it is.
+    $record = @('-m', 'aagam.updates', 'record', '--app', $InstallDir, '--repo', $Repo, '--source', $origin.Source)
+    if ($origin.Branch) { $record += @('--branch', $origin.Branch) }  # else the repository's default branch, found when checking
     if ($origin.Commit) { $record += @('--commit', $origin.Commit) }
-    if (-not (Test-Path (Join-Path $InstallDir 'install.json'))) { $record += @('--auto-update', 'on') }
+    if ($firstInstall) { $record += @('--auto-update', 'on') }
     Invoke-Program { & $python @record | Out-Null }
     if ($LASTEXITCODE -ne 0) { Write-Host 'The install record could not be written; updates will ask to be set up.' }
     # After the record exists, an installed copy (not a developer's git checkout) gets a daily check.
-    if (-not (Test-Path (Join-Path $InstallDir '.git')) -and (Test-Path (Join-Path $InstallDir '.venv\Scripts\pythonw.exe'))) {
+    if (-not $NoSchedule -and -not (Test-Path (Join-Path $InstallDir '.git')) -and (Test-Path (Join-Path $InstallDir '.venv\Scripts\pythonw.exe'))) {
         Invoke-Program { & $python -m aagam.updates schedule --app $InstallDir }
         if ($LASTEXITCODE -ne 0) {
             Write-Host 'The daily update check was not added. AAGAM still updates itself while it is open.'
         } else {
             Write-Host 'Each day at 8:00, if AAGAM is not open, a new version is installed by itself.'
         }
+    }
+
+    # AAGAM waits in the background from sign-in, so the desktop shortcut opens at once and watched folders keep
+    # coming in. Set once per copy (--once): a repair or reinstall keeps her choice. The AAGAM Manager or Task Manager >
+    # Startup apps turns it off.
+    if (-not $NoAutostart) {
+        $now = Invoke-Program { & $python -m aagam.updates autostart --app $InstallDir on --once }
+        if ($LASTEXITCODE -eq 0 -and "$now".Trim() -eq 'on') { Write-Host 'AAGAM starts in the background when you sign in to Windows.' }
     }
 
     $version = (Select-String -Path (Join-Path $InstallDir 'src\aagam\__init__.py') -Pattern '__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
@@ -209,6 +240,10 @@ try {
     }
     if ($origin.Work) { Remove-Item -Recurse -Force $origin.Work -ErrorAction SilentlyContinue }
 
+    # Everything is in place: check it all once, now that the install record and the start at sign-in are there too.
+    Write-Step 'Checking this computer'
+    Invoke-Program { & (Join-Path $InstallDir '.venv\Scripts\aagam.exe') doctor }
+
     Write-Host ''
     Write-Host "AAGAM $version is installed."
     if (-not $NoShortcuts) {
@@ -217,7 +252,8 @@ try {
     } else {
         Write-Host "  Open it with: $InstallDir\.venv\Scripts\aagam.exe"
     }
-    Write-Host '  Updates arrive by themselves from GitHub while AAGAM is idle, and at 8:00 when it is closed.'
+    Write-Host '  New versions arrive by themselves from GitHub while AAGAM is not in use.'
+    Write-Host '  Lines marked ! above are optional; lines marked X need the fix written under them.'
     if (-not $NoOpen) {
         $pythonw = Join-Path $InstallDir '.venv\Scripts\pythonw.exe'
         if (Test-Path $pythonw) {

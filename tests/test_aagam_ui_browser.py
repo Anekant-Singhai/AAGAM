@@ -238,10 +238,19 @@ def test_correcting_and_deleting_from_the_window(desk):
             await page.get_by_text("Hidden in this document.").wait_for()
             assert await page.locator("li", has_text="01234567").count() == 0
             await page.get_by_label("More about this document").click()
-            await page.get_by_role("menuitem", name="Delete this document").click()
-            await page.get_by_role("dialog").get_by_role("button", name="Delete document").click()
+            await page.get_by_role("menuitem", name="Move to Trash").click()
+            await page.get_by_role("dialog").get_by_role("button", name="Move to Trash").click()
             await page.get_by_role("heading", name="Library").wait_for()
             await page.get_by_text("1 document").wait_for()
+
+            # The Trash has it, and Restore puts it back with her corrected page.
+            await page.get_by_role("link", name="Trash").first.click()
+            await page.get_by_role("heading", name="Trash").wait_for()
+            await page.locator("li", has_text="NOTICE OF 10TH ANNUAL GENERAL MEETING").get_by_role("button", name="Restore").click()
+            await page.get_by_text("The Trash is empty").or_(page.get_by_text("Nothing in the Trash")).first.wait_for()
+            await page.goto(f"{desk}/library?type=notice")
+            await page.locator("a, button", has_text="NOTICE OF 10TH ANNUAL GENERAL MEETING").first.click()
+            await page.get_by_text("You corrected this page's text.").wait_for()
             await browser.close()
             return errors
 

@@ -67,6 +67,64 @@ export function UpdatePill() {
 }
 
 /**
+ * Keeps an eye on AAGAM itself. When it goes away (it is putting a new version in place, it was closed from the AAGAM
+ * Manager, the laptop slept), the window says so plainly instead of failing everywhere, and comes back by itself when
+ * AAGAM does. A hidden window asks less often.
+ */
+export function ConnectionWatch() {
+  const [down, setDown] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const since = useRef<number | null>(null);
+  const known = useRef<{ version: string; commit: string | null } | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    let misses = 0;
+    let timer = 0;
+    const tick = async () => {
+      if (stopped) return;
+      const h = await health();
+      if (h) {
+        const changed = known.current && (known.current.commit !== (h.commit ?? null) || known.current.version !== h.version);
+        if (since.current !== null || changed) {
+          window.location.reload(); // back (perhaps as a new version): start the window afresh
+          return;
+        }
+        known.current = { version: h.version, commit: h.commit ?? null };
+        misses = 0;
+      } else if (++misses >= 2 && since.current === null) {
+        since.current = Date.now();
+        setDown(since.current);
+      }
+      setNow(Date.now());
+      timer = window.setTimeout(tick, since.current !== null ? 2_000 : document.hidden ? 30_000 : 10_000);
+    };
+    timer = window.setTimeout(tick, 3_000);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+  if (down === null) return null;
+  const long = now - down > 2 * 60_000;
+  return createPortal(
+    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-bg-primary/90 backdrop-blur-sm fade-in" role="alertdialog" aria-live="assertive"
+      aria-label={long ? "AAGAM has closed" : "AAGAM is starting again"}>
+      <div className="card p-8 max-w-md text-center pop-in">
+        {long ? <RefreshCw size={28} className="mx-auto text-accent-amber mb-3" /> : <Loader2 size={30} className="mx-auto text-accent-brand animate-spin mb-3" />}
+        <p className="display text-xl font-semibold">{long ? "AAGAM has closed" : "AAGAM is starting again…"}</p>
+        <p className="text-sm text-text-secondary mt-2 leading-6">
+          {long
+            ? "Open it again from the AAGAM shortcut on the desktop, or open AAGAM Manager from the Start menu and press Open AAGAM. Your work is saved."
+            : "If it is putting a new version in place, this takes about a minute. This window comes back by itself. Your work is saved."}
+        </p>
+        {long && <button className="btn mt-4" onClick={() => window.location.reload()}>Try again</button>}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+/**
  * Over the whole window while AAGAM updates: the server stops, puts the new version in place and starts again.
  * It asks every two seconds, and opens the new AAGAM as soon as it answers.
  */

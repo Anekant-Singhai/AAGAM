@@ -11,7 +11,7 @@ Install AAGAM on this computer
 1. If you are looking at this file inside a ZIP, close it.
    Right-click the ZIP, choose Extract All, then Extract.
 
-2. Open the extracted folder (it is usually called AAGAM-main).
+2. Open the extracted folder (it is usually called AAGAM-master).
 
 3. Double-click install.cmd.
 
@@ -46,22 +46,21 @@ If AAGAM will not open
 ----------------------
 
 Press the Windows key, type AAGAM Manager, and press Enter.
-Type a number and press Enter.
+A window opens. It says whether AAGAM is running and has a button
+for each job:
 
-  1   Open AAGAM
-  2   Check for updates
-  3   Update now
-  4   Health check
-  5   Repair (sets AAGAM up again; your documents are kept)
-  6   Install or repair the local AI
-  7   Connect Claude Desktop
-  8   Set the update key (only if the GitHub repository is private)
-  9   Uninstall AAGAM
-  10  Back up my data
-  11  Save a report for help
-  0   Exit
+  Open AAGAM / Stop AAGAM
+  Check for updates / Update now
+  Health check
+  Repair (sets AAGAM up again; your documents are kept)
+  Local AI / Claude Desktop
+  Back up my data / Report for help
+  Open data folder / Uninstall
 
-Start with 4. If it finds a problem, choose 5.
+Start with Health check. If it finds a problem, press Repair.
+
+The Manager also has two switches: start AAGAM when you sign in to
+Windows, and install updates by themselves.
 
 
 Updates
@@ -69,7 +68,8 @@ Updates
 
 When a new version is put on GitHub, this computer installs it:
 
-- by itself, while AAGAM is open and not busy reading documents, and
+- by itself, once AAGAM has been left alone for 20 minutes and is not
+  reading documents (it never interrupts your work), and
 - every day at 8:00, if AAGAM is closed.
 
 Your documents and records are never changed by an update.
@@ -102,7 +102,7 @@ A file appears on the Desktop. Send that file.
 It contains the health check and recent logs. It does not contain your
 documents or your update key.
 
-The same file can be made from AAGAM Manager, choice 11.
+The same file can be made from AAGAM Manager: press Report for help.
 Logs also live in C:\Users\<your name>\AAGAM\logs
 and in %TEMP%\aagam-install.log
 

@@ -73,23 +73,43 @@ Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Packages') -Directory -Filter 'Claud
     ForEach-Object { $configs += (Join-Path $_.FullName 'LocalCache\Roaming\Claude\claude_desktop_config.json') }
 $configs += (Join-Path $env:APPDATA 'Claude\claude_desktop_config.json')
 if (Test-Path $python) {
-    Invoke-Program { & $python -m aagam.updates claude-remove @configs }
+    Invoke-Program { & $python -m aagam.updates claude-remove --app $root @configs }  # only this copy's own entry
 }
 
-# 3. Shortcuts that open this copy, the Start menu folder, the Settings > Apps entry, the model setting.
+# 3. What this copy added to Windows: shortcuts, the Settings > Apps entry, the daily check, the start at sign-in.
+# Each is removed only when it belongs to this copy, so removing one copy never breaks another.
+function Test-Ours([string]$Text) { return $Text -and $Text.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0 }
+
 $shell = New-Object -ComObject WScript.Shell
-$desktop = [Environment]::GetFolderPath('Desktop')
-foreach ($name in 'AAGAM.lnk', 'AAGAM Manager.lnk', 'CS Desk browser.lnk') {
-    $link = Join-Path $desktop $name
-    if (Test-Path $link) {
-        $target = $shell.CreateShortcut($link).TargetPath
-        if ($target -and $target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -Force $link }
+$menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'AAGAM'
+foreach ($folder in [Environment]::GetFolderPath('Desktop'), $menu) {
+    foreach ($name in 'AAGAM.lnk', 'AAGAM Manager.lnk', 'CS Desk browser.lnk') {
+        $link = Join-Path $folder $name
+        if (Test-Path $link) {
+            $shortcut = $shell.CreateShortcut($link)
+            # The Manager's shortcut runs PowerShell with this copy's script, so its arguments name the folder.
+            if ((Test-Ours $shortcut.TargetPath) -or (Test-Ours $shortcut.Arguments)) { Remove-Item -Force $link }
+        }
     }
 }
-Remove-Item -Recurse -Force (Join-Path ([Environment]::GetFolderPath('Programs')) 'AAGAM') -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AAGAM' -ErrorAction SilentlyContinue
-try { Unregister-ScheduledTask -TaskName 'AAGAM Update' -Confirm:$false -ErrorAction SilentlyContinue } catch { }
-[Environment]::SetEnvironmentVariable('AAGAM_LOCAL_AI_MODEL', $null, 'User')
+if ((Test-Path $menu) -and -not (Get-ChildItem $menu -Force -ErrorAction SilentlyContinue)) { Remove-Item -Force $menu -ErrorAction SilentlyContinue }
+
+$apps = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AAGAM'
+if (Test-Ours ((Get-ItemProperty -Path $apps -ErrorAction SilentlyContinue).InstallLocation)) { Remove-Item -Recurse -Force $apps -ErrorAction SilentlyContinue }
+
+try {
+    $task = Get-ScheduledTask -TaskName 'AAGAM Update' -ErrorAction SilentlyContinue
+    if ($task -and ((Test-Ours $task.Actions[0].Execute) -or (Test-Ours $task.Actions[0].WorkingDirectory))) {
+        Unregister-ScheduledTask -TaskName 'AAGAM Update' -Confirm:$false -ErrorAction SilentlyContinue
+    }
+} catch { }
+
+$run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+if (Test-Ours ((Get-ItemProperty -Path $run -Name 'AAGAM' -ErrorAction SilentlyContinue).AAGAM)) {
+    Remove-ItemProperty -Path $run -Name 'AAGAM' -ErrorAction SilentlyContinue
+}
+# The local AI model's setting goes with the last copy of AAGAM (no other copy left in Settings > Apps).
+if (-not (Test-Path $apps)) { [Environment]::SetEnvironmentVariable('AAGAM_LOCAL_AI_MODEL', $null, 'User') }
 
 # 4. The data folder, only when asked for and only if it is AAGAM's.
 if ($RemoveData -and $Confirm -eq 'REMOVE') {

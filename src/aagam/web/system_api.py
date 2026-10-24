@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,20 @@ from ..config import AagamSettings
 
 log = logging.getLogger("aagam.system")
 FIRST_CHECK = 30  # seconds after the server starts
-CHECK_EVERY = 6 * 3600
+TICK = 10 * 60  # how often the watcher looks
+CHECK_EVERY = 2 * 3600  # how often it asks GitHub
+IDLE_BEFORE_UPDATE = 20 * 60  # an update is put in place only after the window has been left alone this long
+_ACTIVITY = {"last": time.monotonic()}
+
+
+def note_activity() -> None:
+    """The window asked for something (app.py's middleware calls this): she may be working, so no update now."""
+    _ACTIVITY["last"] = time.monotonic()
+
+
+def idle_for() -> float:
+    """Seconds since the window last asked for anything (a closed or hidden window asks for nothing)."""
+    return time.monotonic() - _ACTIVITY["last"]
 
 # What the System page's Repair buttons run (setup-windows.ps1's switches).
 REPAIRS: dict[str, list[str]] = {
@@ -42,6 +56,7 @@ _DETACHED = (0x00000008 | 0x00000200 | 0x08000000) if sys.platform == "win32" el
 
 class UpdateSettings(BaseModel):
     auto_update: bool | None = None
+    autostart: bool | None = None
     repo: str | None = None
     branch: str | None = None
     token: str | None = None
@@ -167,6 +182,10 @@ def router(settings: AagamSettings, db: Callable[..., Any]) -> APIRouter:
             changes["auto_update"] = body.auto_update
         if changes:
             updates.write_record(app, **changes)
+        if "autostart" in given and body.autostart is not None:
+            problem = updates.set_autostart(app, body.autostart)
+            if problem:
+                raise Invalid(problem)
         if "token" in given:
             updates.save_token(app, body.token)
         return updates.info(app, home)
@@ -284,12 +303,15 @@ def _busy(settings: AagamSettings) -> bool:
 
 
 class UpdateWatcher(threading.Thread):
-    """Checks GitHub a little after AAGAM starts and every six hours. An installed copy with automatic updates on
-    puts a new version in place when AAGAM is idle; a developer's checkout is only ever checked."""
+    """Asks GitHub a little after AAGAM starts and every two hours. An installed copy with automatic updates on puts a
+    new version in place only once the window has been left alone for IDLE_BEFORE_UPDATE and nothing is being read,
+    so an update never cuts into her work; until then the window offers "Update now". A developer's checkout is only
+    ever checked."""
 
-    def __init__(self, settings: AagamSettings, first: float = FIRST_CHECK, every: float = CHECK_EVERY) -> None:
+    def __init__(self, settings: AagamSettings, first: float = FIRST_CHECK, every: float = TICK, check_every: float = CHECK_EVERY,
+                 idle: float = IDLE_BEFORE_UPDATE) -> None:
         super().__init__(name="aagam-updates", daemon=True)
-        self.settings, self.first, self.every = settings, first, every
+        self.settings, self.first, self.every, self.check_every, self.idle = settings, first, every, check_every, idle
         self.stopping = threading.Event()
 
     def run(self) -> None:
@@ -304,18 +326,31 @@ class UpdateWatcher(threading.Thread):
                 return
 
     def tick(self) -> bool:
-        """One check; True when it started an update."""
+        """One look; True when it started an update."""
         app = updates.app_folder()
         how = updates.mode(app)
         if how == "none":
             return False
-        found = updates.check(app)
+        found = updates.state(app)
+        if self._time_to_ask(found):
+            found = updates.check(app)
         if how != "archive" or not found["available"] or not updates.read_record(app).get("auto_update", True):
             return False
-        if _busy(self.settings) or (updates.updates_dir(app) / "apply.lock").exists():
-            return False  # the next check tries again
+        if idle_for() < self.idle or _busy(self.settings) or (updates.updates_dir(app) / "apply.lock").exists():
+            return False  # she is using AAGAM, or it is reading: a later look tries again
         _start_update(app, self.settings)
         return True
+
+    def _time_to_ask(self, found: dict[str, Any]) -> bool:
+        from datetime import datetime
+
+        if found.get("status") in ("checking", "downloading", "applying") or not found.get("checked_at"):
+            return True
+        try:
+            asked = datetime.fromisoformat(found["checked_at"])
+        except ValueError:
+            return True
+        return (datetime.now() - asked).total_seconds() >= self.check_every
 
     def stop(self) -> None:
         self.stopping.set()
