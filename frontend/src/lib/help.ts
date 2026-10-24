@@ -141,7 +141,7 @@ export const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
         key: "work", title: "Work register", icon: "briefcase", to: "/work",
         what: "Each job, from a board meeting to a charge, with its checklist, documents, dates and notes.",
         how: [
-          "New work → choose the kind (board meeting, AGM, EGM, annual filings, appointment, allotment, charge, due diligence, secretarial audit).",
+          "New work → choose the kind (board meeting, AGM, EGM, annual filings, appointment, allotment, charge, due diligence, secretarial audit, and the LLP jobs: incorporation, annual filing, partners, agreement, office, name, strike off).",
           "Each step cites its basis: the section, rule or SS-1/SS-2 paragraph. Tick it, note against it, or add your own.",
           "Attach the notice, drafts and filings. Home shows what is late and what is next.",
         ],
@@ -170,7 +170,7 @@ export const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
       {
         key: "due", title: "Due dates", icon: "calendar", to: "/due",
         what: "What is due for each client company, worked out from the company file, each with its legal basis.",
-        how: ["Items marked \"check\" rest on a reading to confirm.", "Home shows the next 30 days."],
+        how: ["Items marked \"check\" rest on a reading to confirm.", "Once a form is filed, Mark as filed records it (with its SRN) in the client's Filings and takes it off the list.", "Home shows the next 30 days. Companies and LLPs alike."],
         power: ["rules"],
       },
       {
@@ -250,8 +250,8 @@ export const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
         what: "When a new version of AAGAM is published, AAGAM finds it and puts it in place. Your documents and records are never touched.",
         how: [
           "A note on Home and a mark in the sidebar say when a new version is ready; Update now puts it in place in about a minute.",
-          "With automatic updates on, a new version installs itself when AAGAM is idle. At 8:00, if AAGAM is closed, it is installed too. Open AAGAM afterwards.",
-          "If an update goes wrong, the version you had is put back. Your documents are never touched. Close Claude Desktop before updating, and open it again afterwards.",
+          "With automatic updates on, a new version is put in place once AAGAM has been left alone for 20 minutes, never while you are working. At 8:00, if AAGAM is closed, it is installed too.",
+          "If an update goes wrong, the version you had is put back. Your documents are never touched. If you use Claude Desktop, quit it and open it again afterwards.",
         ],
         power: ["rules"],
       },
@@ -262,6 +262,7 @@ export const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
           "Updates & health → Health lists each part: fine, worth a look, or needs fixing, with what to do.",
           "Install local AI, connect Claude Desktop, put the desktop shortcuts back, or repair AAGAM, each with one button.",
           "Uninstall removes the program but keeps your data folder, unless you choose to delete that too.",
+          "If AAGAM won't open at all, AAGAM Manager in the Start menu has the same buttons: Open, Health check, Repair, Update now and more.",
         ],
         power: ["rules"],
       },
@@ -343,5 +344,5 @@ export const PAGE_HELP: [RegExp, string, string[]][] = [
   [/^\/companies/, "Clients", ["New client starts a company file. Open one to see and change everything on it."]],
   [/^\/notes/, "Notes", ["Search finds words in any note. Pinned notes show on Home."]],
   [/^\/calculators/, "Calculators", ["Enter the figures and Work it out. Opened from a set of accounts, the figures are filled in."]],
-  [/^\/due/, "Due dates", ["Worked out from the company file. Choose how far ahead to look."]],
+  [/^\/due/, "Due dates", ["Worked out from the company file. Choose how far ahead to look.", "Mark as filed records the filing (SRN, date, fees) and takes the item off the list."]],
 ];

@@ -14,6 +14,8 @@ AAGAM is a desk for a Company Secretary that runs on her own Windows laptop. It 
 - **Local AI** summaries (Ollama, on the laptop) and **Claude Desktop** tools over the same data.
 - **Updates itself** from GitHub, checks its own health, and can repair or uninstall itself.
 
+**Already installed? [The AAGAM guide](docs/GUIDE.md) shows how to use it, job by job: clients, bringing documents in, finding them, due dates and filings, work, LLPs, MCA forms, the Trash, updates and backups.**
+
 ---
 
 ## Install AAGAM on a new laptop
@@ -91,12 +93,14 @@ To use AAGAM's tools from Claude, install Claude Desktop from **https://claude.a
 
 ## First steps in AAGAM
 
+The short version is below. [The AAGAM guide](docs/GUIDE.md) covers every job step by step.
+
 1. **Add your clients.** Open **Clients**, then **Add**. Give the name and the CIN (or the LLPIN for an LLP). Everything else can come later.
 2. **Bring in your documents.** Open **Library** and choose **Add a folder**. Click **Browse…** and pick the folder where you keep client files. AAGAM shows how many files it found and what it can read. Choose how to file them:
    - **Work it out** (recommended): each document goes to the client whose CIN or LLPIN it carries, whose name its folder has (a folder called *Acme Widgets* matches *Acme Widgets Private Limited*), or whose name it is about.
    - **One client**: everything in the folder belongs to one client.
    - **Not a client's documents**: for law, circulars and the like.
-   Tick **Keep watching this folder** to have new files picked up while AAGAM is open. Then press **Start**. You can carry on working: the folder is read in the background and the Library shows its progress.
+   Tick **Keep watching this folder** to have new files picked up while AAGAM is open. Then press **Read … files**. You can carry on working: the folder is read in the background and the Library shows its progress.
 3. **Drop files in.** Drag files, or whole folders, from Explorer onto the AAGAM window.
 4. **Find documents.** Use the search box at the top (or **Ctrl+K**), or the filters in **Library**: financial year, from and to dates, client, folder, type of document and kind of file. **Group by** sorts the list into sections, for example by client or by financial year.
 5. **MCA portal.** Open **CS Desk browser** from the desktop and log in to MCA yourself (captcha and OTP). AAGAM can then fill forms in that window. It always stops before submit, sign and pay; you do those.

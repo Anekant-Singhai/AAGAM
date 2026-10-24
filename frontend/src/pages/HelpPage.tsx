@@ -14,6 +14,9 @@ export const HELP_ICONS: Record<string, React.ReactNode> = {
   scan: <ScanSearch size={18} />, folder: <FolderOpen size={18} />, heart: <HeartPulse size={18} />, life: <LifeBuoy size={18} />,
 };
 
+/** The full guide to using AAGAM, as GitHub shows it (the same file is docs\GUIDE.md in the program folder). */
+export const GUIDE_URL = "https://github.com/Anekant-Singhai/AAGAM/blob/HEAD/docs/GUIDE.md";
+
 export function PowerBadge({ power }: { power: Power }) {
   const looks: Record<Power, string> = { rules: "tag-1", local: "tag-0", claude: "tag-3" };
   return <span className={clsx("chip", looks[power])} title={POWER[power].hint}>{POWER[power].label}</span>;
@@ -30,6 +33,11 @@ export default function HelpPage() {
             <p className="text-text-secondary mt-1 max-w-3xl leading-6">
               AAGAM keeps your documents and your clients' records, reads what comes in, finds anything, lays out each job with the law behind it,
               reads the accounts and tests them against the thresholds. You decide, sign and file; AAGAM never submits, signs or pays.
+            </p>
+            <p className="text-sm text-text-secondary mt-2">
+              Step by step, for every day:{" "}
+              <a className="text-accent-brand underline underline-offset-2" href={GUIDE_URL} target="_blank" rel="noreferrer">the AAGAM guide</a>
+              {" "}(also in the program folder, docs\GUIDE.md).
             </p>
             <div className="flex flex-wrap gap-2 mt-3">
               {(Object.keys(POWER) as Power[]).map((p) => (

@@ -47,6 +47,20 @@ The address http://127.0.0.1:8765 is this computer, not a website.
 Other computers cannot open it.
 
 
+How to use AAGAM
+----------------
+
+The guide walks through every job, step by step: clients, bringing
+documents in, finding them, due dates and filings, work, LLPs, MCA
+forms, the Trash, updates and backups.
+
+It is docs\GUIDE.md in the AAGAM program folder, and on GitHub:
+https://github.com/Anekant-Singhai/AAGAM/blob/HEAD/docs/GUIDE.md
+
+Inside AAGAM, "What AAGAM does" (at the foot of the menu) and the ?
+on every page also explain what you are looking at.
+
+
 If AAGAM will not open
 ----------------------
 

@@ -88,3 +88,17 @@ def test_inbox_files_are_brought_in(client, settings, tmp_path):
     results = client.post("/api/inbox", headers=CHANGE).json()["results"]
     assert results[0]["file"] == "dropped notice.pdf" and results[0]["document_id"]
     assert client.get("/api/documents").json()["documents"][0]["resolutions"] == 4
+
+
+def test_marking_a_due_date_as_filed_closes_it(client, settings):
+    """What the Due dates page's "Mark as filed" sends: a filing with the item's form and trigger."""
+    with open_db(settings.db_path) as vault:
+        vault.save("company", {"name": "Beta Traders LLP", "cin": "AAB-1234", "date_of_incorporation": "2015-06-01"}, USER)
+    due = client.get("/api/due", params={"days": 365}).json()["items"]
+    form11 = next(d for d in due if d["form"] == "LLP FORM 11")
+    filed = client.post("/api/records/filing", json={"data": {
+        "company_id": form11["company_id"], "form": form11["form"], "trigger": form11["trigger"], "due_on": form11["due"],
+        "status": "submitted", "srn": "AB1234567", "filed_on": "2026-05-20", "fees": 600}}, headers=CHANGE)
+    assert filed.status_code == 200, filed.text
+    left = client.get("/api/due", params={"days": 365}).json()["items"]
+    assert not [d for d in left if d["form"] == "LLP FORM 11" and d["trigger"] == form11["trigger"]]
