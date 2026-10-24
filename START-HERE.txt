@@ -29,6 +29,11 @@ If the internet stops halfway, double-click install.cmd again.
 It carries on from where it stopped. Your documents are never touched
 by installing.
 
+Already have AAGAM? Running install.cmd again (or AAGAM Manager,
+Repair) updates it to the newest version from GitHub and sets
+everything up again. Your documents are kept, and if anything goes
+wrong the version you had is put back.
+
 You can delete the ZIP and the extracted folder afterwards.
 
 

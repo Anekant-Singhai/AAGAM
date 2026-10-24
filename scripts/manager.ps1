@@ -318,8 +318,8 @@ Add-Button 'Stop AAGAM' 'Close AAGAM (the server in the background).' { Stop-Aag
 Add-Button 'Check for updates' 'Ask GitHub whether there is a newer version, and what changed.' { Invoke-Aagam 'Check for updates' @('update') }
 Add-Button 'Update now' 'Put the newest version in place. AAGAM closes for a minute and opens again.' { Invoke-Aagam 'Update now' @('update', '--apply', '--open') }
 Add-Button 'Health check' 'Check this computer: Python, data, the window, scanned-page reading, browser, local AI, Claude Desktop, disk.' { Invoke-Aagam 'Health check' @('doctor') }
-Add-Button 'Repair' 'Set AAGAM up again from its own files: its Python, packages, data folder and shortcuts. Your documents and records are kept.' {
-    if (Test-Running) { Stop-Aagam; Start-Sleep -Seconds 2 }
+Add-Button 'Repair' 'Fetch a fresh copy of AAGAM from GitHub (the newest version) and set everything up again: its Python, packages, data folder and shortcuts. Without internet it uses the copy here. Your documents and records are kept.' {
+    # The installer closes AAGAM itself, keeps a copy to put back if anything fails, and starts it again afterwards.
     Invoke-Script 'Repair' 'install.ps1' @('-InstallDir', "`"$root`"", '-NoOpen', '-NoLocalAI', '-NoClaude')
 }
 Add-Button 'Local AI' 'Install or repair the local AI (Ollama and its model, a few GB the first time).' {

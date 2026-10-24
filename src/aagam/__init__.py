@@ -7,4 +7,4 @@ of resolutions, calculators, local AI, the web interface and the combined MCP
 server for Claude Desktop.
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"

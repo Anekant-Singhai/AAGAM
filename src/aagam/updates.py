@@ -1210,6 +1210,8 @@ def main(argv: list[str] | None = None) -> int:
         for key in ("repo", "branch", "commit", "source"):
             if getattr(args, key):
                 changes[key] = getattr(args, key)
+        if args.commit == "none":
+            changes["commit"] = None  # new files whose commit isn't known (a ZIP): the next check works it out by version
         if args.auto_update:
             changes["auto_update"] = args.auto_update == "on"
         if not read_record(app).get("installed_at"):

@@ -54,6 +54,8 @@ A black window opens and shows what it is doing:
 
 If the internet drops halfway, just double-click **install.cmd** again. It carries on from where it stopped.
 
+**Already have AAGAM?** Running the installer again (by any of the ways on this page) updates it: see [Updating by running the installer again](#updating-by-running-the-installer-again).
+
 You can delete the downloaded ZIP and the extracted folder afterwards. AAGAM doesn't need them any more.
 
 ### Step 4: Open AAGAM
@@ -123,6 +125,23 @@ AAGAM looks for a new version on GitHub by itself, shortly after it starts and e
 - **Your documents and records are never touched by an update.** If anything goes wrong during an update, AAGAM puts the previous version back by itself.
 - To check now: **Updates & health** → **Check now**. Or Start menu → **AAGAM Manager** → **Check for updates**.
 - After an update, if you use Claude Desktop, quit it and open it again so it gets the new version too. AAGAM reminds you.
+
+### Updating by running the installer again
+
+On a computer that already has AAGAM, running the installer again is another way to update it, and it repairs everything at the same time. Any of these works:
+
+- **AAGAM Manager → Repair**;
+- the one line in PowerShell: `irm https://raw.githubusercontent.com/Anekant-Singhai/AAGAM/HEAD/scripts/install.ps1 | iex`;
+- double-click **install.cmd**, in a newly downloaded ZIP or in the program folder `C:\Users\<you>\AppData\Local\Programs\AAGAM`.
+
+Each time, the installer:
+
+1. fetches the newest version from GitHub (or uses the folder it was run from, if that is newer or the internet is down);
+2. closes AAGAM if it is open, and keeps a copy of the version you have;
+3. puts the new version in, and sets up Python, the packages, the data folder, the shortcuts and the rest again;
+4. checks everything, and opens AAGAM again.
+
+It never goes back to an older version, and if anything goes wrong it puts your previous version back. Your documents and records are never touched. To install exactly the folder you run it from, without asking GitHub, add `-Offline`.
 
 **Private repository?** The laptop then needs an access key to see updates:
 

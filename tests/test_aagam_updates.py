@@ -413,6 +413,14 @@ def test_the_updater_records_an_installation(tmp_path, capsys):
     assert (record["repo"], record["commit"], record["source"], record["auto_update"], record["version"]) == (REPO, NEW, "zip", True, "0.2.0")
     assert record["installed_at"]
 
+    # Installed again from a ZIP, whose commit isn't known: the old commit mustn't stay in the record.
+    assert updates.main(["record", "--app", str(app), "--repo", REPO, "--commit", "none", "--source", "zip"]) == 0
+    assert updates.read_record(app)["commit"] is None and updates.read_record(app)["installed_at"] == record["installed_at"]
+
+    # Start at sign-in is offered once per copy: a reinstall keeps her choice (the tests never touch the registry).
+    assert updates.main(["autostart", "--app", str(app), "on", "--once"]) == 0
+    assert updates.read_record(app)["autostart_offered"] is True
+
 
 # ------------------------------------------------------------------ the System page's API
 
